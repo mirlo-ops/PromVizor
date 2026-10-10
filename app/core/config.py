@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.core.env import env_float, env_int, env_str, load_env
+
 
 class DemoScenario:
     """Сценарии DEMO-симулятора."""
@@ -88,4 +90,34 @@ class Settings:
     telegram_chat_id: str = ""  # TELEGRAM_CHAT_ID
 
 
-settings = Settings()
+def _from_env() -> "Settings":
+    """Собирает настройки с учётом переменных окружения и .env.
+
+    Приоритет: переменная окружения > .env > значение по умолчанию.
+    Здесь не задаются только те поля, которые не должны приходить
+    извне (например, координаты ROI — это часть конфигурации
+    конкретной камеры, а не окружения).
+    """
+    return Settings(
+        # --- Экономика ---
+        cost_per_minute=env_float("COST_PER_MINUTE", 750.0),
+        # --- Event Engine ---
+        downtime_threshold_seconds=env_int("DOWNTIME_THRESHOLD_SECONDS", 30),
+        # --- Камеры ---
+        camera_id=env_int("CAMERA_ID", 1),
+        # --- Источники ---
+        default_source=env_str("DEFAULT_SOURCE", "demo"),
+        rtsp_url=env_str("RTSP_URL", ""),
+        # --- База данных ---
+        database_path=env_str("DATABASE_PATH", "promvizor.db"),
+        # --- Telegram ---
+        telegram_bot_token=env_str("TELEGRAM_BOT_TOKEN", ""),
+        telegram_chat_id=env_str("TELEGRAM_CHAT_ID", ""),
+    )
+
+
+# Файл .env читается при импорте. Реальное окружение имеет приоритет,
+# поэтому на CI и в контейнере переменные подставляются снаружи.
+load_env()
+
+settings = _from_env()

@@ -20,7 +20,7 @@
 | 1. Video (DEMO / WEBCAM / RTSP) | ✅ готов |
 | 2. Computer Vision (YOLO, ROI, motion) | ✅ готов |
 | 3. Event Engine | ✅ готов |
-| 4. Экономика (downtime, loss) | ⚠️ таймер и формула готовы, нет БД |
+| 4. Экономика (downtime, loss) | ✅ готов |
 | 5. Database (SQLite) | ❌ не начат |
 | 6. API (FastAPI) | ❌ не начат |
 | 7. Dashboard | ⚠️ интерфейс готов, данных нет |
@@ -164,8 +164,9 @@ with create_source("demo", scenario="stopped_no_person") as src:
 ## Тесты
 
 ```bash
-.venv/bin/python tests/test_vision.py    # 17 тестов
-.venv/bin/python tests/test_engine.py    # 19 тестов
+.venv/bin/python tests/test_vision.py      # 17 тестов
+.venv/bin/python tests/test_engine.py      # 19 тестов
+.venv/bin/python tests/test_economics.py   # 21 тест
 ```
 
 Тесты не требуют видео и работают без YOLO: движок принимает
@@ -194,9 +195,18 @@ loss = downtime_minutes × cost_per_minute
 
 | Переменная | Назначение |
 |---|---|
+| `COST_PER_MINUTE` | стоимость минуты простоя, ₽ (по умолчанию 750) |
+| `DOWNTIME_THRESHOLD_SECONDS` | порог подтверждения простоя, сек |
+| `CAMERA_ID` | номер камеры |
+| `DEFAULT_SOURCE` | `demo` / `webcam` / `rtsp` |
 | `RTSP_URL` | адрес IP-камеры для источника RTSP |
+| `DATABASE_PATH` | путь к файлу SQLite |
 | `TELEGRAM_BOT_TOKEN` | токен Telegram-бота (зона Gasun) |
 | `TELEGRAM_CHAT_ID` | чат для уведомлений (зона Gasun) |
+
+Приоритет: **переменная окружения важнее `.env`**, а значение по
+умолчанию используется, если не задано ни то, ни другое. Поэтому
+настройки можно перекрыть на CI или в контейнере, не редактируя файл.
 
 Файл `.env` не попадает в Git.
 

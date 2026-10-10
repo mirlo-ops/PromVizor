@@ -20,6 +20,8 @@ from app.engine.events import (
     to_contract,
 )
 from app.engine.loss import (
+    average_loss,
+    build_statistics,
     format_loss,
     loss_for_minutes,
     loss_for_seconds,
@@ -40,5 +42,7 @@ __all__ = [
     "loss_for_seconds",
     "loss_for_minutes",
     "total_loss",
+    "average_loss",
+    "build_statistics",
     "format_loss",
 ]

@@ -40,10 +40,36 @@ class EngineEvent:
     at: float
     duration_seconds: float
     estimated_loss: float
+    #: Момент начала простоя (только для kind="finished")
+    started_at: Optional[float] = None
 
     @property
     def is_started(self) -> bool:
         return self.kind == "started"
+
+    def to_contract(self, cost_per_minute: Optional[float] = None):
+        """Готовое событие для БД и API — контрактный `DowntimeEvent`.
+
+        Считает backend (Lev): Dashboard и Telegram получают уже
+        посчитанный ущерб и ничего не пересчитывают (раздел 14).
+        """
+        from app.engine.events import DowntimeFinished, DowntimeStarted, to_contract
+
+        if self.is_started:
+            return to_contract(
+                started=DowntimeStarted(camera_id=self.camera_id, at=self.at),
+                cost_per_minute=cost_per_minute or 0.0,
+            )
+
+        return to_contract(
+            finished=DowntimeFinished(
+                camera_id=self.camera_id,
+                at=self.at,
+                started_at=self.started_at,
+                duration_seconds=self.duration_seconds,
+            ),
+            cost_per_minute=cost_per_minute or 0.0,
+        )
 
     def describe(self) -> str:
         if self.is_started:
@@ -162,6 +188,7 @@ class EventEngine:
                 at=raw.at,
                 duration_seconds=raw.duration_seconds,
                 estimated_loss=self._loss(raw.duration_seconds, self.cost_per_minute),
+                started_at=raw.started_at,
             )
         raise TypeError(f"Неизвестное событие: {type(raw)!r}")
 
