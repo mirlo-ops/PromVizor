@@ -1,0 +1,1013 @@
+# HANDOFF — ПРОМВИЗОР
+
+## LEV — актуальное состояние проекта
+
+**Дата:** 08.10.2026
+**Проект:** ПромВизор
+**Стадия:** MVP / Alpha
+**Разработчики:** Lev + Gasun
+
+---
+
+# 1. Роль Lev
+
+Lev отвечает за **всю основную систему ПромВизора**:
+
+* Video Source;
+* OpenCV;
+* YOLO;
+* Person Detection;
+* Motion Detection;
+* ROI;
+* Event Engine;
+* определение простоя;
+* расчёт времени простоя;
+* расчёт ущерба;
+* SQLite;
+* FastAPI;
+* API;
+* Web Dashboard;
+* frontend;
+* интеграцию всех компонентов;
+* DEMO-режим;
+* интеграцию Telegram с backend.
+
+Gasun отвечает **только за Telegram-бота**.
+
+---
+
+# 2. Главная архитектура
+
+Основной pipeline:
+
+```text
+VIDEO
+  ↓
+OpenCV
+  ↓
+YOLO / COMPUTER VISION
+  ↓
+PERSON + MOTION
+  ↓
+ROI
+  ↓
+EVENT ENGINE
+  ↓
+DOWNTIME
+  ↓
+LOSS CALCULATION
+  ↓
+SQLite
+  ↓
+FastAPI
+  ↓
+┌───────────────┬────────────────┐
+│ Web Dashboard │ Telegram Bot   │
+│     LEV       │     GASUN      │
+└───────────────┴────────────────┘
+```
+
+Главная цель Alpha:
+
+**показать полный путь от видеопотока до обнаруженного простоя, расчёта ущерба, сохранения события и отображения результата.**
+
+---
+
+# 3. Что должен уметь MVP
+
+Система должна получать видеопоток из:
+
+1. DEMO video;
+2. WEBCAM;
+3. RTSP.
+
+После этого система должна:
+
+* определить человека;
+* определить движение линии;
+* учитывать ROI;
+* определить состояние линии;
+* определить простой;
+* запустить таймер;
+* рассчитать условный ущерб;
+* сохранить событие;
+* отдать данные через API;
+* показать данные на Dashboard;
+* передать событие Telegram-боту.
+
+---
+
+# 4. Video Source
+
+Необходимо иметь единый интерфейс для источника видео.
+
+Источники:
+
+```text
+DEMO
+WEBCAM
+RTSP
+```
+
+AI-модуль не должен зависеть от конкретного источника.
+
+Условно:
+
+```text
+VideoSource
+    ↓
+get_frame()
+    ↓
+frame
+    ↓
+Vision
+```
+
+Это позволит использовать один и тот же AI pipeline для:
+
+* демонстрационного видео;
+* веб-камеры;
+* реальной RTSP-камеры.
+
+---
+
+# 5. DEMO MODE
+
+DEMO используется для демонстрации работы системы без реальной производственной камеры.
+
+Видео должно быть явно обозначено:
+
+> **DEMO MODE — демонстрационный видеопоток, имитирующий производственную камеру.**
+
+AI-generated видео нельзя выдавать за реальную запись предприятия.
+
+---
+
+# 6. Демо-сценарии
+
+Минимально нужны 4 сценария.
+
+## 6.1 Normal
+
+```text
+MOVING
++
+PERSON PRESENT
+```
+
+Ожидаемое состояние:
+
+```text
+NORMAL
+```
+
+---
+
+## 6.2 Line stopped
+
+```text
+MOVING
++
+PERSON PRESENT
+
+↓
+
+STOPPED
++
+PERSON PRESENT
+```
+
+Это ещё не обязательно простой.
+
+Это может быть:
+
+* обслуживание;
+* наладка;
+* корректировка оборудования.
+
+---
+
+## 6.3 Person absent
+
+```text
+MOVING
++
+PERSON PRESENT
+
+↓
+
+MOVING
++
+PERSON ABSENT
+```
+
+Отсутствие человека само по себе **не должно создавать простой**.
+
+---
+
+## 6.4 Downtime
+
+Главный сценарий:
+
+```text
+MOVING + PERSON PRESENT
+        ↓
+LINE STOPPED
+        ↓
+PERSON LEAVES ROI
+        ↓
+STOPPED + PERSON ABSENT
+        ↓
+N секунд
+        ↓
+DOWNTIME
+```
+
+После этого:
+
+```text
+DOWNTIME
+↓
+TIMER
+↓
+LOSS
+↓
+DATABASE
+↓
+DASHBOARD
+↓
+TELEGRAM
+```
+
+---
+
+# 7. Person Detection
+
+Используется YOLO.
+
+Главный результат:
+
+```python
+person_present: bool
+```
+
+В будущем при необходимости можно добавить:
+
+* bounding boxes;
+* confidence;
+* YOLO Pose.
+
+Но для Alpha достаточно:
+
+```text
+PERSON PRESENT
+PERSON ABSENT
+```
+
+Важно использовать формулировку:
+
+> **Рабочий не обнаружен в контролируемой зоне камеры.**
+
+Не использовать:
+
+> Рабочий отсутствует на предприятии.
+
+Система видит только то, что попадает в камеру.
+
+---
+
+# 8. ROI
+
+ROI — контролируемая область камеры.
+
+Она используется для определения:
+
+> находится ли человек в рабочей зоне.
+
+Например:
+
+```text
+┌─────────────────────────────┐
+│                             │
+│       CONVEYOR              │
+│  ┌───────────────────────┐  │
+│  │       ROI             │  │
+│  │                       │  │
+│  │      👤 WORKER        │  │
+│  │                       │  │
+│  └───────────────────────┘  │
+│                             │
+└─────────────────────────────┘
+```
+
+YOLO обнаруживает человека, после чего система проверяет, попадает ли его положение в ROI.
+
+---
+
+# 9. Motion Detection
+
+Для определения движения конвейера используется:
+
+* OpenCV;
+* анализ изменения изображения;
+* ROI;
+* при необходимости Optical Flow.
+
+Результат:
+
+```text
+MOVING
+STOPPED
+UNKNOWN
+```
+
+Нельзя определять остановку по одному кадру.
+
+Нужно использовать временную устойчивость:
+
+```text
+несколько последовательных кадров
+        ↓
+подтверждение STOPPED
+```
+
+Это снижает количество ложных срабатываний.
+
+---
+
+# 10. Event Engine
+
+Основная логика:
+
+```text
+MOVING + PERSON PRESENT
+→ NORMAL
+```
+
+```text
+MOVING + PERSON ABSENT
+→ NORMAL / NO DOWNTIME
+```
+
+```text
+STOPPED + PERSON PRESENT
+→ POSSIBLE MAINTENANCE
+```
+
+```text
+STOPPED + PERSON ABSENT
+→ POSSIBLE DOWNTIME
+```
+
+Если:
+
+```text
+STOPPED + PERSON ABSENT
+```
+
+продолжается больше заданного порога:
+
+```text
+N секунд
+```
+
+создаётся:
+
+```text
+DOWNTIME
+```
+
+---
+
+# 11. Downtime
+
+Downtime должен иметь как минимум состояния:
+
+```text
+IDLE
+DOWNTIME
+```
+
+При начале простоя:
+
+```text
+downtime_started_at
+```
+
+При восстановлении движения:
+
+```text
+downtime_ended_at
+```
+
+Продолжительность:
+
+```text
+downtime_seconds
+```
+
+---
+
+# 12. Ускоренное DEMO-время
+
+Для презентации желательно использовать ускоренное время.
+
+Например:
+
+```text
+30 реальных секунд
+=
+100 демонстрационных минут
+```
+
+Тогда можно показать:
+
+```text
+00:00
+↓
+линия работает
+
+00:05
+↓
+линия остановилась
+
+00:10
+↓
+рабочий ушёл
+
+00:15
+↓
+DOWNTIME
+
+00:30
+↓
+100 минут простоя
+```
+
+И показать условный ущерб:
+
+```text
+100 × 750 ₽
+=
+75 000 ₽
+```
+
+---
+
+# 13. Loss Calculation
+
+Формула:
+
+```text
+loss = downtime_minutes × cost_per_minute
+```
+
+Пример:
+
+```text
+100 минут × 750 ₽
+=
+75 000 ₽
+```
+
+Расчёт выполняется **backend'ом Lev**.
+
+Dashboard и Telegram только отображают готовое значение.
+
+---
+
+# 14. Общий SystemStatus
+
+Файл:
+
+```text
+app/core/types.py
+```
+
+Контракт:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class SystemStatus:
+    camera_id: int
+    line_status: str
+    person_present: bool
+    downtime_seconds: int
+    estimated_loss: float
+```
+
+Пример:
+
+```python
+SystemStatus(
+    camera_id=1,
+    line_status="STOPPED",
+    person_present=False,
+    downtime_seconds=120,
+    estimated_loss=1500
+)
+```
+
+### Правило
+
+**Lev отвечает за корректность данных.**
+
+Другие компоненты не должны самостоятельно пересчитывать эти значения.
+
+---
+
+# 15. Database
+
+Используется:
+
+```text
+SQLite
+```
+
+Структура:
+
+```text
+app/database/
+├── db.py
+├── models.py
+└── repository.py
+```
+
+База должна хранить как минимум информацию о:
+
+* камере;
+* начале простоя;
+* конце простоя;
+* продолжительности;
+* состоянии линии;
+* наличии рабочего;
+* рассчитанном ущербе.
+
+---
+
+# 16. FastAPI
+
+FastAPI полностью находится на стороне Lev.
+
+Структура:
+
+```text
+app/api/
+├── routes.py
+└── schemas.py
+```
+
+API должен предоставлять данные для:
+
+* Dashboard;
+* Telegram Bot;
+* потенциальных внешних интеграций.
+
+Пример логики:
+
+```text
+GET /api/status
+```
+
+→ текущее состояние системы.
+
+```text
+GET /api/events
+```
+
+→ история событий.
+
+```text
+GET /api/events/{id}
+```
+
+→ конкретное событие.
+
+Названия endpoints можно изменить в процессе разработки, но контракт должен оставаться понятным.
+
+---
+
+# 17. Web Dashboard
+
+Dashboard теперь полностью делает Lev.
+
+Структура:
+
+```text
+frontend/
+├── index.html
+├── style.css
+└── app.js
+```
+
+Dashboard должен показывать:
+
+### Текущее состояние
+
+```text
+Камера №1
+
+LINE
+🔴 STOPPED
+
+PERSON
+❌ NOT DETECTED
+
+DOWNTIME
+02:14
+
+LOSS
+1 680 ₽
+```
+
+### Историю
+
+Например:
+
+| Время | Камера | Событие  | Длительность |  Ущерб |
+| ----- | ------ | -------- | -----------: | -----: |
+| 12:40 | №1     | Downtime |        2 мин | 1500 ₽ |
+| 13:15 | №1     | Downtime |        5 мин | 3750 ₽ |
+
+---
+
+# 18. Telegram Bot
+
+Telegram делает Gasun.
+
+Gasun отвечает только за:
+
+* Telegram API;
+* команды;
+* форматирование сообщений;
+* уведомления;
+* получение данных из backend.
+
+Telegram **не анализирует видео**.
+
+Telegram **не определяет простой**.
+
+Telegram **не считает ущерб**.
+
+---
+
+# 19. Взаимодействие с Gasun
+
+Архитектура:
+
+```text
+                 LEV
+                  │
+                  ▼
+             FastAPI
+                  │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+   Dashboard            Telegram
+        │                   │
+       LEV                GASUN
+```
+
+Gasun получает уже готовые данные:
+
+```text
+line_status
+person_present
+downtime_seconds
+estimated_loss
+camera_id
+```
+
+---
+
+# 20. Telegram-сценарии
+
+Минимальный функционал:
+
+### `/start`
+
+Приветствие и информация о боте.
+
+### `/status`
+
+Например:
+
+```text
+🟢 СИСТЕМА РАБОТАЕТ
+
+Камера: №1
+Линия: MOVING
+Рабочий: обнаружен
+Простой: 0 сек
+```
+
+При простое:
+
+```text
+⚠️ ОБНАРУЖЕН ПРОСТОЙ
+
+Камера: №1
+Линия: STOPPED
+Рабочий: не обнаружен
+Простой: 2 мин
+Ущерб: 1 500 ₽
+```
+
+### `/history`
+
+Последние события.
+
+### Автоматическое уведомление
+
+При начале простоя:
+
+```text
+⚠️ ОБНАРУЖЕН ПРОСТОЙ
+```
+
+При завершении:
+
+```text
+✅ ПРОСТОЙ ЗАВЕРШЁН
+```
+
+---
+
+# 21. Структура проекта
+
+Актуальная структура:
+
+```text
+promvizor/
+│
+├── app/
+│   ├── core/                  # LEV
+│   │   ├── config.py
+│   │   └── types.py
+│   │
+│   ├── video/                 # LEV
+│   │   ├── source.py
+│   │   ├── demo.py
+│   │   ├── webcam.py
+│   │   └── rtsp.py
+│   │
+│   ├── vision/                # LEV
+│   │   ├── person_detector.py
+│   │   ├── motion_detector.py
+│   │   └── roi.py
+│   │
+│   ├── engine/                # LEV
+│   │   ├── event_engine.py
+│   │   ├── downtime.py
+│   │   └── loss.py
+│   │
+│   ├── database/              # LEV
+│   │   ├── db.py
+│   │   ├── models.py
+│   │   └── repository.py
+│   │
+│   ├── api/                   # LEV
+│   │   ├── routes.py
+│   │   └── schemas.py
+│   │
+│   └── telegram/              # GASUN
+│       └── bot.py
+│
+├── frontend/                  # LEV
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+│
+├── demo/                      # COMMON
+│   ├── videos/
+│   └── scenarios/
+│
+├── tests/                     # COMMON
+│
+├── requirements.txt
+├── .env.example
+├── .gitignore
+├── Dockerfile
+├── docker-compose.yml
+└── README.md
+```
+# 23. Текущий приоритет Lev
+
+## Этап 1 — Video
+
+* [ ] `VideoSource`
+* [ ] DEMO source
+* [ ] WEBCAM source
+* [ ] RTSP source
+* [ ] единый `get_frame()`
+
+## Этап 2 — Computer Vision
+
+* [ ] YOLO
+* [ ] Person Detection
+* [ ] ROI
+* [ ] Motion Detection
+* [ ] `MOVING / STOPPED / UNKNOWN`
+
+## Этап 3 — Event Engine
+
+* [ ] состояние линии
+* [ ] состояние рабочего
+* [ ] временной порог
+* [ ] начало простоя
+* [ ] конец простоя
+* [ ] защита от ложных событий
+
+## Этап 4 — Экономика
+
+* [ ] downtime timer
+* [ ] cost per minute
+* [ ] loss calculation
+
+## Этап 5 — Database
+
+* [ ] SQLite
+* [ ] models
+* [ ] repository
+* [ ] сохранение событий
+* [ ] история
+
+## Этап 6 — API
+
+* [ ] FastAPI
+* [ ] `/status`
+* [ ] `/events`
+* [ ] event schema
+* [ ] интеграция с Dashboard
+* [ ] API для Telegram
+
+## Этап 7 — Dashboard
+
+* [ ] текущий статус
+* [ ] статус линии
+* [ ] статус рабочего
+* [ ] downtime
+* [ ] loss
+* [ ] история
+
+## Этап 8 — Telegram Integration
+
+* [ ] передать Gasun API-контракт
+* [ ] проверить получение `/status`
+* [ ] проверить `/events`
+* [ ] проверить уведомление о DOWNTIME
+* [ ] проверить завершение простоя
+
+## Этап 9 — Demo
+
+* [ ] Normal video
+* [ ] Stop video
+* [ ] Person Out video
+* [ ] Downtime video
+* [ ] DEMO MODE label
+* [ ] ускоренное время
+
+## Этап 10 — Финальная демонстрация
+
+Полная цепочка:
+
+```text
+DEMO VIDEO
+    ↓
+OpenCV
+    ↓
+YOLO
+    ↓
+PERSON + MOTION
+    ↓
+ROI
+    ↓
+EVENT ENGINE
+    ↓
+DOWNTIME
+    ↓
+LOSS
+    ↓
+SQLite
+    ↓
+FastAPI
+    ↓
+Dashboard
+    ↓
+Telegram
+```
+
+---
+
+# 24. Главная задача на ближайший этап
+
+Не пытаться сразу сделать промышленную систему.
+
+Сначала необходимо получить **стабильный end-to-end demo**:
+
+```text
+Видео
+↓
+YOLO видит человека
+↓
+OpenCV видит движение
+↓
+рабочий покидает ROI
+↓
+линия останавливается
+↓
+Event Engine фиксирует DOWNTIME
+↓
+запускается таймер
+↓
+считается ущерб
+↓
+данные попадают в SQLite
+↓
+FastAPI отдаёт данные
+↓
+Dashboard показывает событие
+↓
+Telegram отправляет уведомление
+```
+
+Если эта цепочка работает стабильно — **Alpha технически готова**.
+
+---
+
+# 25. Главный принцип разработки
+
+**Не усложнять то, что не нужно для демонстрации.**
+
+В Alpha важнее:
+
+```text
+СТАБИЛЬНО
+>
+ПОНЯТНО
+>
+ДЕМОНСТРИРУЕМО
+>
+СЛОЖНО
+```
+
+Система должна надёжно показать основную идею ПромВизора, даже если некоторые компоненты пока являются упрощёнными.
+
+---
+
+# 26. Итоговое распределение
+
+### LEV
+
+**Всё ядро + Dashboard + API:**
+
+```text
+Video
+OpenCV
+YOLO
+ROI
+Motion
+Event Engine
+Downtime
+Loss
+SQLite
+FastAPI
+Dashboard
+Frontend
+Integration
+Demo
+```
+
+### GASUN
+
+**Только Telegram:**
+
+```text
+Telegram Bot
+Commands
+Notifications
+Message formatting
+Backend integration
+```
+
+### COMMON
+
+```text
+Demo videos
+Tests
+requirements.txt
+.env.example
+Git coordination
+```
+
+---
+
+# 27. Критерий готовности проекта
+
+Проект считается готовым к Alpha-демонстрации, если можно запустить один сценарий и вживую показать:
+
+**камера → обнаружение → остановка линии → отсутствие рабочего → простой → время → ущерб → БД → Dashboard → Telegram.**
+
+Это и есть главный результат MVP.
