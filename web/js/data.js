@@ -45,6 +45,9 @@
   const toHM = (min) => `${pad(Math.floor(min / 60) % 24)}:${pad(min % 60)}`;
   const fmtHM = (sec) => {
     sec = Math.max(0, Math.round(sec));
+    // Для коротких интервалов «0 мин» вводит в заблуждение: при
+    // простое в 38 ₽ на экране было написано «0 мин». Показываем секунды.
+    if (sec < 60) return `${sec} сек`;
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
     return h > 0 ? `${h}:${pad(m)}` : `${m} мин`;

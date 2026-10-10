@@ -414,6 +414,73 @@ def test_demo_status_shows_current_downtime():
 
 
 # --------------------------------------------------------------------------- #
+# Видео: режим камеры и список камер
+# --------------------------------------------------------------------------- #
+def test_video_mode_is_reported():
+    with fixture(populate=False) as f:
+        body = f.client.get("/api/video/mode").json()
+        assert body["mode"] in body["available"]
+        assert body["mode_label"], "у режима должно быть название"
+        # Порог 5 секунд — требование ТЗ для режима веб-камеры
+        assert body["downtime_threshold_webcam_seconds"] == 5
+
+
+def test_video_mode_rejects_unknown():
+    with fixture(populate=False) as f:
+        response = f.client.post("/api/video/mode", params={"mode": "telepathy"})
+        assert response.status_code == 422
+        assert "Неизвестный режим" in response.json()["detail"]
+
+
+def test_video_cameras_endpoint():
+    """Список камер отдаётся, даже если камер в системе нет."""
+    with fixture(populate=False) as f:
+        body = f.client.get("/api/video/cameras").json()
+        assert "items" in body
+        assert isinstance(body["items"], list)
+        assert body["note"], "к списку должно идти пояснение"
+
+
+def test_video_state_endpoint():
+    from app.api import runtime
+
+    with fixture(populate=False) as f:
+        try:
+            body = f.client.get("/api/video/state").json()
+            assert "mode" in body
+            assert "mode_label" in body
+            assert "tracks" in body
+        finally:
+            runtime.stop_pipeline()
+
+
+def test_video_mode_switches_and_saves():
+    """Смена режима сохраняется и подхватывается при следующем чтении."""
+    from app.api import runtime
+    from app.core import camera_mode
+
+    original = camera_mode.SETTINGS_FILE
+    # Своя папка: файл настроек остаётся на диске, и общая временная
+    # папка фикстуры из-за него не удалится
+    settings_dir = tempfile.mkdtemp()
+    with fixture(populate=False) as f:
+        try:
+            camera_mode.SETTINGS_FILE = Path(settings_dir) / "camera_mode.json"
+            response = f.client.post(
+                "/api/video/mode", params={"mode": "synthetic", "webcam_index": 0}
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["mode"] == "synthetic"
+            assert body["mode_label"]
+            # Чтение возвращает то, что сохранили
+            assert f.client.get("/api/video/mode").json()["mode"] == "synthetic"
+        finally:
+            runtime.stop_pipeline()
+            camera_mode.SETTINGS_FILE = original
+
+
+# --------------------------------------------------------------------------- #
 # Раннер без pytest
 # --------------------------------------------------------------------------- #
 def _main() -> int:

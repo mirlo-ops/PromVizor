@@ -24,6 +24,16 @@
     employeesLine: "all",
     reportPeriod: "month",
     settings: loadSettings(),
+    /* Режим камеры и выбор веб-камеры приходят с сервера, а не из
+       localStorage: переключать режим нужно на работающей системе,
+       без перезапуска backend'а. */
+    video: {
+      mode: "synthetic",
+      modeLabel: "",
+      webcamIndex: 0,
+      webcams: [],
+      applied: false,
+    },
   };
 
   function loadSettings() {
@@ -156,6 +166,7 @@
        называть «Камера №1». */
     const cams = data.cameras;
     const cam = cams.find((c) => c.id === line) || cams[0];
+    const v = state.video;
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
 
@@ -204,10 +215,10 @@
         </div>
 
         <div class="video-stage">
-          <img src="${videoDataUri(line)}" alt="Камера 1, линия ${line}">
+          <img id="videoFeed" src="/api/video/stream" alt="Видео с камеры ${esc(cam.name)}">
           <div class="video-overlay">
             <div class="ov-top">
-              <span class="ov-chip">Камера 1 · Линия ${line}</span>
+              <span class="ov-chip">${esc(v.modeLabel || v.mode)} · Линия ${line}</span>
             </div>
             <div class="ov-bottom">
               <span class="ov-chip rec"><span class="dot dot-red"></span>LIVE</span>
@@ -217,9 +228,10 @@
         </div>
 
         <div class="player-bar">
-          <button class="btn-ghost" id="playBtn">${icon(state.playing ? "pause" : "play")}<span>${state.playing ? "Пауза" : "Пуск"}</span></button>
-          <div class="grow"><i id="seekBar"></i></div>
-          <span>Линия ${line} · ${cam.online ? "поток активен" : "нет сигнала"}</span>
+          <span class="feed-legend"><i class="dot dot-green"></i>Рабочий в кадре</span>
+          <span class="feed-legend"><i class="dot dot-red"></i>Линия стоит</span>
+          <span class="grow"></span>
+          <span>${esc(cam.online ? "поток активен" : "нет сигнала")}</span>
         </div>
       </div>
 
@@ -301,14 +313,20 @@
     const showLoss = state.settings.show_loss;
     const cost = data.config() ? data.config().cost_per_minute : state.settings.cost_per_minute;
 
-    /* Данных ещё нет: сервер не отвечает или база пуста.
-       Показываем это прямо, а не рисуем нули как показание. */
+    /* Данных ещё нет: сервер не отвечает или конвейер запускается.
+       Причины разные и требуют разных слов: «запустите сервер» при
+       живом, но ещё пустом backend'е отправляет оператора искать
+       несуществующую проблему. */
     if (!st || !st.line_status) {
+      const online = global.PV.api.ready();
+      const text = online
+        ? "Сервер отвечает, конвейер запускается — данных пока нет."
+        : "Нет связи с backend'а. Запустите сервер и обновите страницу.";
       return `<div class="card now-panel is-idle">
-        <div class="now-head">${icon("cam")}<h2>Текущее состояние</h2></div>
+        <div class="now-head">${icon("bars")}<h2>Текущее состояние</h2></div>
         <div class="now-empty">
           ${icon("alert")}
-          <span>Нет данных с backend'а. Запустите сервер и обновите страницу.</span>
+          <span>${esc(text)}</span>
         </div>
       </div>`;
     }
@@ -856,8 +874,130 @@
   /* ============================================================
      6. НАСТРОЙКИ
      ============================================================ */
+  /* ============================================================
+     РЕЖИМ КАМЕРЫ: подсказки и выбор камеры
+     ============================================================ */
+  function modeHint(mode) {
+    if (mode === "webcam")
+      return "Видео с камеры компьютера. Человек в кадре — всё штатно; исчез — простой фиксируется в отчёте.";
+    if (mode === "rtsp")
+      return "Сетевая камера. В Alpha недоступна: в окне камер будет «нет сигнала».";
+    if (mode === "demo")
+      return "Готовые ролики сценариев из папки demo/. Пока их нет — используйте синтетику.";
+    return "Сцена рисуется программно: видно всё — рамку человека, его путь и простой. Это не данные завода.";
+  }
+
+  function webcamOptions(v) {
+    if (!v.webcams.length) {
+      return '<option value="0">Камеры не найдены</option>';
+    }
+    return v.webcams
+      .map(
+        (c) =>
+          `<option value="${c.index}" ${c.index === v.webcamIndex ? "selected" : ""}>` +
+          `${esc(c.name)}${c.width ? " — " + c.width + "×" + c.height : ""}` +
+          `${c.works ? "" : " (не отдаёт кадр)"}</option>`
+      )
+      .join("");
+  }
+
+  function webcamHint(v) {
+    if (!v.webcams.length) {
+      return "Камеры не найдены. Проверьте, что камера подключена и не занята другой программой.";
+    }
+    const chosen = v.webcams.find((c) => c.index === v.webcamIndex);
+    if (chosen && !chosen.works) {
+      return "Выбранная камера открывается, но не отдаёт кадр — в окне будет «нет сигнала».";
+    }
+    return "Список получен перебором устройств.";
+  }
+
+  /* Загружает режим камеры и список веб-камер с сервера. */
+  async function loadVideoConfig() {
+    try {
+      const modeResponse = await fetch("/api/video/mode");
+      if (modeResponse.ok) {
+        const mode = await modeResponse.json();
+        state.video.mode = mode.mode;
+        state.video.modeLabel = mode.mode_label;
+        state.video.webcamIndex = mode.webcam_index;
+        state.video.threshold = mode.downtime_threshold_webcam_seconds;
+        state.video.applied = true;
+      }
+    } catch (e) {
+      /* сервер не ответил — настройки останутся такими, какие есть */
+    }
+
+    try {
+      const camerasResponse = await fetch("/api/video/cameras");
+      if (camerasResponse.ok) {
+        const list = await camerasResponse.json();
+        state.video.webcams = list.items || [];
+      }
+    } catch (e) {
+      state.video.webcams = [];
+    }
+  }
+
+  /* Применяет выбранный режим на сервере. */
+  async function applyVideoMode() {
+    const note = document.getElementById("modeNote");
+    const button = document.getElementById("applyMode");
+    if (!note || !button) return;
+
+    const mode = document.getElementById("s_mode").value;
+    const cameraSelect = document.getElementById("s_webcam");
+    const webcamIndex = cameraSelect ? +cameraSelect.value || 0 : 0;
+
+    button.disabled = true;
+    note.textContent = "Переключаем источник видео…";
+    try {
+      const response = await fetch(
+        `/api/video/mode?mode=${encodeURIComponent(mode)}&webcam_index=${webcamIndex}`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || "HTTP " + response.status);
+      }
+      const applied = await response.json();
+      state.video.mode = applied.mode;
+      state.video.webcamIndex = applied.webcam_index;
+      /* Название режима обновляем тоже: в оверлее видео иначе
+         осталась бы подпись от прошлого режима («Демо (синтетика)»
+         при включённой веб-камере) — оператор смотрел бы не туда. */
+      state.video.modeLabel = applied.mode_label || "";
+      const error = applied.state && applied.state.error;
+      if (error) {
+        toast(error, "err");
+      } else {
+        toast("Режим переключён: " + (applied.mode_label || applied.mode));
+      }
+      // Кадр изменился — картинка на вкладке «Камеры» должна смениться
+      restartVideoFeed();
+      render("settings");
+    } catch (err) {
+      toast("Не удалось переключить режим: " + err.message, "err");
+      note.textContent = "Не удалось применить";
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  /* Перезагружает <img> с потоком: после смены источника картинка
+     осталась бы от прежней камеры. */
+  function restartVideoFeed() {
+    const feed = document.getElementById("videoFeed");
+    if (feed) {
+      // Меняем адрес на неотличимый — иначе браузер покажет
+      // предыдущий кадр из кэша
+      feed.src = feed.src.split("?")[0] + "?t=" + Date.now();
+    }
+  }
+
   function renderSettings() {
     const s = state.settings;
+    const v = state.video;
     const sw = (key, title, desc) => `
       <div class="switch-row">
         <div class="txt">${title}<small>${desc}</small></div>
@@ -906,20 +1046,40 @@
       </div>
 
       <div class="card set-card">
-        <div class="set-title">Источник видео</div>
-        <div class="set-desc">Откуда система берёт видеопоток</div>
+        <div class="set-title">Режим камеры</div>
+        <div class="set-desc">Откуда система берёт видео и как настраивается простой</div>
+
         <div class="field">
-          <label for="s_src">Тип источника</label>
-          <select class="input" id="s_src">
-            <option value="demo" ${s.default_source === "demo" ? "selected" : ""}>DEMO — демонстрационный ролик</option>
-            <option value="webcam" ${s.default_source === "webcam" ? "selected" : ""}>WEBCAM — локальная камера</option>
-            <option value="rtsp" ${s.default_source === "rtsp" ? "selected" : ""}>RTSP — сетевая камера</option>
+          <label for="s_mode">Режим</label>
+          <select class="input" id="s_mode">
+            <option value="synthetic" ${v.mode === "synthetic" ? "selected" : ""}>Демо — синтетическая сцена</option>
+            <option value="demo" ${v.mode === "demo" ? "selected" : ""}>Демо — ролики сценариев</option>
+            <option value="webcam" ${v.mode === "webcam" ? "selected" : ""}>Веб-камера</option>
+            <option value="rtsp" ${v.mode === "rtsp" ? "selected" : ""}>Сетевая камера</option>
           </select>
+          <div class="hint" id="modeHint">${esc(modeHint(v.mode))}</div>
         </div>
+
+        <div class="field ${v.mode === "webcam" ? "" : "is-hidden"}" id="webcamField">
+          <label for="s_webcam">Камера</label>
+          <select class="input" id="s_webcam" ${v.webcams.length ? "" : "disabled"}>
+            ${webcamOptions(v)}
+          </select>
+          <div class="hint" id="webcamHint">${esc(webcamHint(v))}</div>
+        </div>
+
         <div class="field">
-          <label for="s_rtsp">RTSP-адрес</label>
-          <input class="input" id="s_rtsp" type="text" placeholder="rtsp://user:pass@host:554/stream" value="${esc(s.rtsp_url)}">
-          <div class="hint">Используется, если выбран режим RTSP</div>
+          <label>Порог фиксации простоя</label>
+          <div class="hint" style="margin:0">
+            В режиме веб-камеры — ${esc(v.threshold)} сек: если рабочий исчез из кадра
+            дольше этого времени, простой попадает в отчёт.
+            В демо-режиме порог другой: ролик короткий.
+          </div>
+        </div>
+
+        <div class="set-actions" style="padding:14px 0 0">
+          <button class="btn-primary" id="applyMode">${icon("check")}Применить</button>
+          <span class="note" id="modeNote"></span>
         </div>
       </div>
 
@@ -1006,6 +1166,10 @@
     syncCostPerMinute,
     applyTheme,
     closeDateMenus,
+    /* Настройки режима камеры нужны app.js при старте:
+       до загрузки они с сервера неизвестны. */
+    loadVideoConfig,
+    restartVideoFeed,
 
     /* Без аргумента перерисовываем текущий раздел.
        Раньше view становился undefined, state.section обнулялся,
@@ -1047,6 +1211,9 @@
 
       /* --- play/pause --- */
       on(root, "click", "#playBtn", () => {
+        /* Кнопка плеера больше не нужна: картинка идёт живьём с
+           сервера, и «пауза» означала бы просто остановить
+           обновление — это делается переключением режима. */
         state.playing = !state.playing;
         this.render("cameras");
         toast(state.playing ? "Воспроизведение запущено" : "Воспроизведение приостановлено");
@@ -1170,6 +1337,16 @@
         const k = b.dataset.toggle;
         state.settings[k] = !state.settings[k];
         saveSettings();
+        this.render("settings");
+      });
+
+      /* --- режим камеры --- */
+      on(root, "click", "#applyMode", () => applyVideoMode());
+
+      /* Смена режима перерисовывает блок: поле выбора камеры нужно
+         только в режиме веб-камеры, а подсказка зависит от режима. */
+      on(root, "change", "#s_mode", (e) => {
+        state.video.mode = e.target.value;
         this.render("settings");
       });
 

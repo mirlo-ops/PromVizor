@@ -39,6 +39,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import close_database, get_database, router
+from app.api.runtime import stop_pipeline
+from app.api.stream import router as video_router
 from app.core.config import settings
 
 DESCRIPTION = """
@@ -68,6 +70,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        # Конвейер закрываем до базы: он ходит в базу из своего потока,
+        # и при остановке мог бы писать в уже закрытое соединение.
+        stop_pipeline()
         close_database()
 
 
@@ -82,6 +87,7 @@ app = FastAPI(
 )
 
 app.include_router(router)
+app.include_router(video_router)
 
 
 # --------------------------------------------------------------------------- #

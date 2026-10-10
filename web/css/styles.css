@@ -233,6 +233,10 @@ svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;stroke
   display:flex;gap:6px;padding:0 20px;
 }
 .tabs.is-hidden{display:none}
+/* Универсальное скрытие: раньше правило жило только для вкладок,
+   и новые элементы (например, поле выбора камеры) оставались
+   видимыми во всех режимах. */
+.is-hidden{display:none}
 .tab{
   display:flex;align-items:center;gap:10px;
   padding:18px 18px 15px;color:var(--muted);font-size:16px;font-weight:500;
@@ -374,6 +378,11 @@ svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;stroke
 }
 .player-bar .grow{flex:1;height:4px;background:var(--fill);border-radius:4px;overflow:hidden}
 .player-bar .grow i{display:block;height:100%;background:var(--green-2);width:0}
+/* Легенда под видео: что означает цвет рамки вокруг человека.
+   Без неё цвет — просто украшение, и оператор не поймёт, что зелёный
+   это «человек на месте», а красный «линия стоит». */
+.player-bar .feed-legend{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.player-bar .feed-legend .dot{width:8px;height:8px}
 .btn-ghost{
   border:1px solid var(--line);border-radius:9px;padding:7px 12px;
   color:var(--ink-2);font-size:14px;display:inline-flex;align-items:center;gap:7px;

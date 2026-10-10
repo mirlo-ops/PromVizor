@@ -25,6 +25,11 @@ class Settings:
 
     # --- Event Engine ---
     downtime_threshold_seconds: int = 30  # N секунд до фиксации простоя
+    # Порог для режима ВЕБ-КАМЕРЫ (требование ТЗ): человек исчез из
+    # кадра → через 5 секунд простой фиксируется в отчёте.
+    # Это условность именно веб-камеры: для короткого DEMO-ролика
+    # такой порог бессмыслен, для сетевой камеры — другой.
+    downtime_threshold_webcam_seconds: int = 5
     # После восстановления движения простой держится ещё столько секунд,
     # прежде чем событие завершится. Защита от «дребезга»: микропаузы
     # конвейера не должны порождать пару STARTED/FINISHED на каждый кадр.
@@ -49,7 +54,12 @@ class Settings:
     demo_scenario_dir: str = "demo/scenarios"
 
     # --- Источники по умолчанию ---
+    # Режим камеры: demo | webcam | rtsp | synthetic.
+    # synthetic — тот же демо, но с нарисованной сценой; включается,
+    # когда DEMO-роликов ещё нет.
     default_source: str = "demo"
+    # Номер веб-камеры (0 — первая). Выбирается в настройках.
+    webcam_index: int = 0
     rtsp_url: str = ""  # из .env: RTSP_URL
 
     # --- База данных ---
@@ -114,10 +124,12 @@ def _from_env() -> "Settings":
         cost_per_minute=env_float("COST_PER_MINUTE", 750.0),
         # --- Event Engine ---
         downtime_threshold_seconds=env_int("DOWNTIME_THRESHOLD_SECONDS", 30),
+        downtime_threshold_webcam_seconds=env_int("DOWNTIME_THRESHOLD_WEBCAM_SECONDS", 5),
         # --- Камеры ---
         camera_id=env_int("CAMERA_ID", 1),
         # --- Источники ---
         default_source=env_str("DEFAULT_SOURCE", "demo"),
+        webcam_index=env_int("WEBCAM_INDEX", 0),
         rtsp_url=env_str("RTSP_URL", ""),
         # --- База данных ---
         database_path=env_str("DATABASE_PATH", "promvizor.db"),
