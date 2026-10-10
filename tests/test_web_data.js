@@ -220,8 +220,20 @@ console.log("\nweb/js — слой данных Dashboard\n");
     assertEqual(byLine[1], 420, "суммарный простой");
   });
 
-  await check("линии берутся из списка камер", () => {
-    assertEqual(JSON.stringify(data.lines), JSON.stringify([1]), "линии");
+  await check("линии — три, даже если сервер знает об одной камере", () => {
+    /* Раньше линии брались из ответа /api/cameras, и при одной
+       зарегистрированной камере весь интерфейс сжимался до одного
+       столбца: ломались таймлайн, сводка и отчёты. */
+    assertEqual(JSON.stringify(data.lines), JSON.stringify([1, 2, 3]), "линии");
+  });
+
+  await check("камера есть для каждой линии", () => {
+    assertEqual(data.cameras.length, 3, "число камер");
+    const byId = {};
+    data.cameras.forEach((c) => (byId[c.id] = c));
+    assertEqual(byId[1].online, true, "камера 1 зарегистрирована на сервере");
+    assertEqual(byId[2].online, false, "камера 2 серверу неизвестна");
+    assertEqual(byId[3].online, false, "камера 3 серверу неизвестна");
   });
 
   await check("текущий статус приходит с сервера", () => {

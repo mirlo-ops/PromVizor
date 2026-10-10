@@ -141,11 +141,21 @@
      1. КАМЕРЫ
      ============================================================ */
   function renderCameras() {
+    /* Выбранная линия всегда должна существовать: если её убрали
+       из настроек, показываем первую доступную, иначе экран
+       останется с пустым таймлайном без объяснения. */
+    if (data.lines.indexOf(state.camLine) === -1) {
+      state.camLine = data.lines[0] || 1;
+    }
     const line = state.camLine;
     /* Таймлайн показывает и открытый простой (идущий прямо сейчас):
        он ещё не завершён, но оператор должен видеть, что линия стоит. */
     const evs = data.events(state.day, line);
-    const cam = data.cameras[0];
+    /* Камера выбирается по выбранной линии, а не всегда первая:
+       иначе при переключении на «Линию 2» заголовок продолжал
+       называть «Камера №1». */
+    const cams = data.cameras;
+    const cam = cams.find((c) => c.id === line) || cams[0];
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
 
@@ -179,6 +189,8 @@
     const ts = `${U.pad(now.getDate())}.${U.pad(now.getMonth() + 1)}.${now.getFullYear()} ${U.pad(now.getHours())}:${U.pad(now.getMinutes())}:${U.pad(now.getSeconds())}`;
 
     return `
+    ${renderNowPanel()}
+
     <div class="cam-layout">
       <div class="card cam-card">
         <div class="cam-head">
@@ -340,8 +352,8 @@
 
     return `<div class="card now-panel">
       <div class="now-head">
-        ${icon("cam")}
-        <h2>Камера №${esc(st.camera_id)}</h2>
+        ${icon("bars")}
+        <h2>Текущее состояние</h2>
         <span class="now-sync ${data.isLive() ? "is-live" : "is-mock"}">${sync}</span>
       </div>
       <div class="now-grid">${cells}</div>
@@ -497,8 +509,6 @@
       </div>
       ${isToday ? '<span class="tag">Сегодня</span>' : '<button class="btn-today" data-day="today">Сегодня</button>'}
     </div>
-
-    ${renderNowPanel()}
 
     <div class="card timeline-wrap">
       <div class="tl-axis">

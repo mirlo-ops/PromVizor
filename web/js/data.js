@@ -29,6 +29,12 @@
 
   const api = global.PV.api;
 
+  /* Линии — конфигурация цеха, а не ответ сервера.
+     Backend может знать пока об одной камере, но интерфейс
+     рассчитан на три линии: сжимать наряд до одного столбца
+     нельзя, иначе ломаются таймлайн, сводка и отчёты. */
+  const DEFAULT_LINES = [1, 2, 3];
+
   /* ---------- утилиты ---------- */
   const pad = (n) => String(n).padStart(2, "0");
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -208,21 +214,44 @@
       );
     }
 
-    /* Список камер — источник правды о линиях. Если камер нет,
-       оставляем единственную линию 1: иначе интерфейс нечего
-       рисовать, но это ещё не значит, что система сломалась. */
+    /* Список камер — источник правды о том, какие камеры есть.
+       Но НЕ о числе линий: линии — это конфигурация интерфейса,
+       их наряд всегда три. Если брать линии из ответа сервера, то
+       при одной зарегистрированной камере весь интерфейс
+       сжимался до одного столбца, и половина разделов переставала
+       работать. */
     const camerasList = (cameras && cameras.items) || [];
-    cache.cameras = camerasList.length
-      ? camerasList.map((c) => ({
-          id: c.id,
-          name: c.name,
-          online: true,
-          source_type: c.source_type,
-          is_demo: c.is_demo,
-        }))
-      : [{ id: 1, name: "Камера №1", online: true }];
+    const known = new Map();
+    camerasList.forEach((c) => {
+      known.set(c.id, {
+        id: c.id,
+        name: c.name || `Камера №${c.id}`,
+        online: true,
+        source_type: c.source_type,
+        is_demo: c.is_demo,
+      });
+    });
 
-    cache.lines = cache.cameras.map((c) => c.id);
+    /* Три линии по настройке плюс все линии, о которых сообщил
+       сервер: если камер больше трёх, они тоже должны появиться. */
+    const lineIds = new Set(DEFAULT_LINES);
+    known.forEach((_, id) => lineIds.add(id));
+    cache.lines = Array.from(lineIds).sort((a, b) => a - b);
+
+    /* Камера показывается для каждой линии. Если сервер о ней не
+       знает, она честно помечается офлайн: иначе при переключении
+       на «Линию 2» заголовок продолжал бы называть «Камера №1»,
+       то есть показывал бы чужую камеру. */
+    cache.cameras = cache.lines.map(
+      (id) =>
+        known.get(id) || {
+          id: id,
+          name: `Камера №${id}`,
+          online: false,
+          source_type: "",
+          is_demo: false,
+        }
+    );
     cache.config = config;
 
     /* Раскладываем события по суткам */
