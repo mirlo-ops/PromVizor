@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -111,7 +112,12 @@ class Pipeline:
 
         self._lock = threading.Lock()
         self._frame_lock = threading.Lock()
+        self._preview_lock = threading.Lock()
         self._jpeg: bytes = b""
+        self._preview_jpeg: bytes = b""
+        self._preview_captured_at = 0.0
+        self._preview_tracks: List[Track] = []
+        self._preview_status = LineStatus.UNKNOWN
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
 
@@ -443,6 +449,18 @@ class Pipeline:
         jpeg = overlay.encode_jpeg(annotated)
         with self._frame_lock:
             self._jpeg = jpeg
+            self._preview_tracks = [
+                Track(
+                    track_id=track.track_id,
+                    box=tuple(track.box),
+                    confidence=track.confidence,
+                    trail=deque(track.trail),
+                    misses=track.misses,
+                    age=track.age,
+                )
+                for track in tracks
+            ]
+            self._preview_status = result.line_status
 
         self.state.frames += 1
         self.state.last_frame_at = time.time()
@@ -468,7 +486,38 @@ class Pipeline:
     # Доступ извне
     # ------------------------------------------------------------------ #
     def latest_jpeg(self) -> bytes:
-        """Последний кадр в JPEG (для одиночного снимка)."""
+        """Свежий JPEG-кадр; веб-камера использует последние рамки треков."""
+        source = self.source
+        if self.state.mode == "webcam" and source is not None:
+            snapshot = getattr(source, "latest_frame_snapshot", None)
+            captured = snapshot() if callable(snapshot) else None
+            if captured is not None:
+                frame, captured_at = captured
+                with self._preview_lock:
+                    if captured_at != self._preview_captured_at:
+                        with self._frame_lock:
+                            tracks = [
+                                Track(
+                                    track_id=track.track_id,
+                                    box=tuple(track.box),
+                                    confidence=track.confidence,
+                                    trail=deque(track.trail),
+                                    misses=track.misses,
+                                    age=track.age,
+                                )
+                                for track in self._preview_tracks
+                            ]
+                            status = self._preview_status
+                        annotated = overlay.render_frame(
+                            frame,
+                            tracks,
+                            line_status=status,
+                            roi=self.roi,
+                        )
+                        self._preview_jpeg = overlay.encode_jpeg(annotated)
+                        self._preview_captured_at = captured_at
+                    return self._preview_jpeg
+
         with self._frame_lock:
             return self._jpeg
 

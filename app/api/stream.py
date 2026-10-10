@@ -36,9 +36,8 @@ router = APIRouter(prefix="/api/video", tags=["видео"])
 #: Разделительная строка кадра в потоке MJPEG (требование протокола)
 BOUNDARY = "frame"
 
-#: Как часто отдавать кадр, если источник не успевает. Меньше 10 Гц
-#: незаметно глазу, а трафик заметно ниже.
-MAX_STREAM_FPS = 10.0
+#: Ограничиваем отдачу потока на уровне частоты обработки конвейера.
+MAX_STREAM_FPS = 24.0
 
 
 # --------------------------------------------------------------------------- #
@@ -112,7 +111,10 @@ def _placeholder_frame(pipeline: Pipeline):
 
     frame = np.full((360, 640, 3), 38, dtype=np.uint8)
     text = pipeline.state.error or "Ожидание сигнала с камеры…"
-    return overlay.draw_banner(frame, text, ok=False)
+    # Обязательно кодируем в JPEG. Раньше здесь возвращался сырой
+    # ndarray, а MJPEG сравнивал его с байтами и падал:
+    # «truth value of an array... is ambiguous» на строке 96.
+    return overlay.encode_jpeg(overlay.draw_banner(frame, text, ok=False))
 
 
 @router.get("/snapshot.jpg", summary="Один кадр (JPEG)")

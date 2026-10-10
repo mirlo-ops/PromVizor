@@ -161,6 +161,9 @@ class PersonDetector:
             frame,
             conf=self.confidence,
             classes=list(self.person_classes),
+            # Уменьшенный размер входа заметно ускоряет CPU-инференс на
+            # обычных веб-камерах, сохраняя достаточную детализацию для людей.
+            imgsz=416,
             verbose=False,
         )
         return _boxes_from_results(results)

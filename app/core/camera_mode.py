@@ -7,9 +7,11 @@
 `.env`: файл `.env` читается только при старте процесса, а режим
 переключается на работающей системе без перезапуска.
 
-Приоритет: переменная окружения > .env > файл настроек > умолчание.
-Переменная окружения задана намеренно (например, в контейнере) —
-тогда она главнее и перезаписать её из интерфейса нельзя.
+Приоритет: FORCED_CAMERA_MODE > файл настроек > DEFAULT_SOURCE >
+встроенное умолчание. Принудительный режим задаётся намеренно (например,
+в контейнере) — тогда он главнее и переписать его из интерфейса нельзя.
+DEFAULT_SOURCE — лишь стартовое значение, поэтому выбор режима в
+настройках Dashboard работает при стандартной установке.
 
 Чего здесь нет. Сетевой камера в Alpha недоступна: включать нечего,
 и выбранный режим честно показывает «нет сигнала», а не пустоту.
@@ -64,21 +66,42 @@ def _settings_path() -> Path:
 
 
 def _from_environment() -> Optional[CameraMode]:
-    """Режим из переменной окружения, если он задан.
+    """Режим, ЗАПРЕЩЁННЫЙ окружением (только FORCED_CAMERA_MODE).
 
     Задаётся намеренно (например, в контейнере или при развёртывании),
     поэтому имеет приоритет над тем, что выбрано в интерфейсе.
+
+    Раньше здесь читался DEFAULT_SOURCE, и это была ошибка: переменная
+    значит «режим по умолчанию», а трактовалась как «режим принудительный».
+    В `.env.example` она стоит со значением demo, из-за чего на любой
+    стандартной установке выбор режима в интерфейсе не работал вовсе:
+    save() отказывался писать файл и возвращал demo обратно.
+
+    Теперь принудительным является только явно названная переменная
+    FORCED_CAMERA_MODE, а DEFAULT_SOURCE задаёт лишь стартовое значение.
     """
-    raw = os.environ.get("DEFAULT_SOURCE")
-    if raw:
-        value = raw.strip().lower()
-        if value in ALL_MODES:
-            return CameraMode(mode=value)
+    raw = os.environ.get("FORCED_CAMERA_MODE") or ""
+    raw = raw.strip().lower()
+    if raw in ALL_MODES:
+        return CameraMode(mode=raw)
     return None
 
 
+def _default_mode() -> CameraMode:
+    """Стартовый режим, если файл выбора ещё нет.
+
+    Берётся из DEFAULT_SOURCE — переменная честно означает «по
+    умолчанию». Неизвестное значение игнорируется: иначе опечатка
+    в .env привела бы к несуществующему режиму.
+    """
+    raw = (settings.default_source or "").strip().lower()
+    if raw in ALL_MODES:
+        return CameraMode(mode=raw, webcam_index=settings.webcam_index)
+    return CameraMode(mode=DEFAULT_MODE, webcam_index=settings.webcam_index)
+
+
 def load() -> CameraMode:
-    """Читает текущий режим: окружение → файл → умолчание."""
+    """Читает текущий режим: окружение → файл → значение по умолчанию."""
     forced = _from_environment()
     if forced is not None:
         return forced
@@ -87,7 +110,7 @@ def load() -> CameraMode:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return CameraMode(mode=DEFAULT_MODE, webcam_index=settings.webcam_index)
+        return _default_mode()
 
     try:
         mode = CameraMode(
@@ -96,11 +119,11 @@ def load() -> CameraMode:
             demo_scenario=str(raw.get("demo_scenario", "normal")),
         )
     except (TypeError, ValueError):
-        return CameraMode(mode=DEFAULT_MODE)
+        return _default_mode()
 
     if not mode.is_valid():
         # Битый файл не должен ломать запуск: возвращаем умолчание
-        return CameraMode(mode=DEFAULT_MODE)
+        return _default_mode()
     return mode
 
 

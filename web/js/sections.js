@@ -215,7 +215,7 @@
         </div>
 
         <div class="video-stage">
-          <img id="videoFeed" src="/api/video/stream" alt="Видео с камеры ${esc(cam.name)}">
+          <img id="videoFeed" data-stream-src="/api/video/stream" alt="Видео с камеры ${esc(cam.name)}">
           <div class="video-overlay">
             <div class="ov-top">
               <span class="ov-chip">${esc(v.modeLabel || v.mode)} · Линия ${line}</span>
@@ -599,13 +599,21 @@
       .sort((a, b) => b.startMin - a.startMin)
       .slice(0, 8)
       .map(
-        (e) => `<tr>
-          <td>${e.start}–${e.end}</td>
-          <td>Линия ${e.line}</td>
-          <td>${esc(e.employeeFull)}</td>
-          <td class="num">${U.fmtHM(e.durationSec)}</td>
-          <td class="num">${state.settings.show_loss ? U.fmtMoney(e.loss) : "—"}</td>
-        </tr>`
+        (e) => {
+          const camera = data.cameras.find((item) => item.id === e.camera_id);
+          const eventLabel = e.event === "DOWNTIME_STARTED"
+            ? "Начало простоя"
+            : e.event === "DOWNTIME_FINISHED"
+              ? "Простой завершён"
+              : "Простой";
+          return `<tr>
+            <td>${esc(e.start)}–${e.open ? "сейчас" : esc(e.end)}</td>
+            <td>${esc(camera ? camera.name : `Камера №${e.camera_id}`)}</td>
+            <td>${eventLabel}</td>
+            <td class="num">${U.fmtHM(e.durationSec)}</td>
+            <td class="num">${state.settings.show_loss ? U.fmtMoney(e.loss) : "—"}</td>
+          </tr>`;
+        }
       )
       .join("");
 
@@ -638,7 +646,7 @@
         <div class="panel-sub">Хронологически</div>
         ${evRows
         ? `<table class="ev-table">
-              <thead><tr><th>Время</th><th>Линия</th><th>Сотрудник</th><th class="num">Длит.</th><th class="num">Ущерб</th></tr></thead>
+              <thead><tr><th>Время</th><th>Камера</th><th>Событие</th><th class="num">Длит.</th><th class="num">Ущерб</th></tr></thead>
               <tbody>${evRows}</tbody>
             </table>`
         : '<div class="empty">Простоев не зафиксировано</div>'}
@@ -968,14 +976,32 @@
          при включённой веб-камере) — оператор смотрел бы не туда. */
       state.video.modeLabel = applied.mode_label || "";
       const error = applied.state && applied.state.error;
-      if (error) {
-        toast(error, "err");
+      const label = applied.mode_label || applied.mode;
+
+      /* Подтверждаем переклющение ВСЕГДА, а не только когда ошибок нет.
+         Раньше единственный тост показывал ошибку источника, из-за чего
+         успешное переключение выглядело как сбой: выбираешь веб-камеру —
+         а в тосте «Источник не открыт: DEMO-видео ещё не добавлены».
+         Это была ошибка ПРОШЛОГО режима: конвейер переоткрывает источник
+         не мгновенно, и в ответе ещё лежит прежний текст. */
+      if (applied.mode === mode) {
+        toast("Режим переключён: " + label);
+        note.textContent = "";
       } else {
-        toast("Режим переключён: " + (applied.mode_label || applied.mode));
+        // Сервер не принял выбор — например, режим запрещён окружением.
+        toast("Сервер оставил режим: " + label, "err");
+        note.textContent = "Выбор не применён";
       }
+
+      // Проблема источника — отдельное сообщение, не вместо подтверждения.
+      if (error) toast(error, "err");
       // Кадр изменился — картинка на вкладке «Камеры» должна смениться
       restartVideoFeed();
-      render("settings");
+      /* Через global.PV.sections, а не просто render("settings"):
+         функция вызывается из стрелочной обработчика, где this не
+         определён. Раньше здесь был ReferenceError — режим на сервере
+         переключался, а интерфейс сообщал об ошибке и оставался старым. */
+      global.PV.sections.render("settings");
     } catch (err) {
       toast("Не удалось переключить режим: " + err.message, "err");
       note.textContent = "Не удалось применить";
@@ -1177,6 +1203,9 @@
     render(view) {
       const el = document.getElementById("content");
       const target = view || state.section || state.tab;
+      // Автообновление Dashboard меняет разметку, но существующий MJPEG-
+      // img переносим в новый DOM, чтобы не обрывать видеосоединение.
+      const liveFeed = target === "cameras" ? el.querySelector("#videoFeed") : null;
       state.section = target;
       // Вкладку мониторинга запоминаем отдельно
       if (target === "lines" || target === "cameras" || target === "overview") {
@@ -1190,6 +1219,16 @@
         case "reports": el.innerHTML = renderReports(); break;
         case "settings": el.innerHTML = renderSettings(); break;
         default: el.innerHTML = renderCameras();
+      }
+      if (target === "cameras") {
+        const feed = el.querySelector("#videoFeed");
+        if (liveFeed && feed) {
+          feed.replaceWith(liveFeed);
+          liveFeed.alt = feed.alt;
+          if (!liveFeed.src) liveFeed.src = feed.dataset.streamSrc;
+        } else if (feed) {
+          feed.src = feed.dataset.streamSrc;
+        }
       }
       // Не сбрасываем прокрутку при перерисовке того же раздела (смена даты)
       if (view) el.scrollTop = 0;
