@@ -2,5 +2,14 @@
 # Изменения — только по согласованию Lev и Gasun.
 
 # --- Lev: Video / Vision / Engine ---
-opencv-python>=4.10
+opencv-python-headless>=4.10   # на сервере без GUI; для видео и компьютерного зрения
 numpy>=2.0
+ultralytics>=8.3               # YOLO — Person Detection (Этап 2); тянет torch (~554 МБ)
+
+# --- Lev: API / Database (Этапы 5–6) ---
+# fastapi>=0.115
+# uvicorn[standard]>=0.32
+# python-dotenv>=1.0           # загрузка .env (RTSP_URL, TELEGRAM_*)
+
+# --- COMMON: тесты ---
+# pytest>=8.0

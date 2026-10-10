@@ -46,6 +46,36 @@ class Settings:
     # --- База данных ---
     database_path: str = "promvizor.db"
 
+    # --- ROI (контролируемая зона камеры, Этап 2) ---
+    # Координаты нормализованы: 0.0–1.0 от размера кадра, поэтому ROI
+    # работает при любом разрешении камеры.
+    roi_left: float = 0.20
+    roi_top: float = 0.35
+    roi_right: float = 0.80
+    roi_bottom: float = 0.90
+
+    # --- Person Detection (YOLO, Этап 2) ---
+    yolo_model: str = "yolov8n.pt"   # лёгкая модель для Alpha
+    yolo_confidence: float = 0.35     # порог уверенности
+    # Классы COCO, которые считаем рабочими. 0 = person.
+    yolo_person_classes: tuple = (0,)
+
+    # --- Motion Detection (Этап 2) ---
+    # Детектор считает движение по кадрам ВНУТРИ ROI.
+    motion_history_size: int = 30          # сколько последних кадров копится
+    motion_min_samples: int = 10           # минимум для решения (прогрев)
+    motion_diff_threshold: float = 0.012   # доля изменившихся пикселей
+    # Гистерезис: после STOPPED нужно больше движения для возврата
+    # в WORKING — защита от дрожания на границе.
+    motion_working_threshold: float = 0.018
+    motion_stopped_threshold: float = 0.008
+    motion_blur_kernel: int = 5            # размытие против шума
+    motion_resize_width: int = 320         # ширина для расчёта (ускорение)
+    # Кадр отбраковывается, если средняя яркость изменилась сильнее этого
+    # порога. Иначе заслон объектива или включение света выглядели бы
+    # как «линия поехала» — ложное срабатывание.
+    motion_lighting_threshold: float = 0.08
+
     # --- Telegram (Gasun читает через .env, но ключи согласованы) ---
     telegram_bot_token: str = ""  # TELEGRAM_BOT_TOKEN
     telegram_chat_id: str = ""  # TELEGRAM_CHAT_ID
