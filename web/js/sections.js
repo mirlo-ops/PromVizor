@@ -108,11 +108,11 @@
       <rect width="1440" height="470" fill="url(#ceil${line})"/>
       <rect y="470" width="1440" height="340" fill="url(#flr${line})"/>
       <g opacity=".5" stroke="#8b969e" stroke-width="2">
-        ${[0,1,2,3,4,5].map((i)=>`<path d="M${60+i*260} 0 V470"/>`).join("")}
+        ${[0, 1, 2, 3, 4, 5].map((i) => `<path d="M${60 + i * 260} 0 V470"/>`).join("")}
         <path d="M0 470 H1440"/>
       </g>
       <g fill="#eef3f5" opacity=".9">
-        ${[0,1,2,3].map((i)=>`<rect x="${180+i*330}" y="40" width="150" height="12" rx="6"/>`).join("")}
+        ${[0, 1, 2, 3].map((i) => `<rect x="${180 + i * 330}" y="40" width="150" height="12" rx="6"/>`).join("")}
       </g>
       <g opacity=".95">
         <rect x="120" y="250" width="180" height="200" rx="6" fill="${tint}"/>
@@ -160,7 +160,7 @@
       .join("");
 
     // Сегменты «на месте» до первого простоя и после последнего.
-// Хвост считаем как 100% - left, иначе полоса вылезает за трек.
+    // Хвост считаем как 100% - left, иначе полоса вылезает за трек.
     const firstPct = evs.length ? (evs[0].startMin / 1440) * 100 : 0;
     const lastEndPct = evs.length ? (evs[evs.length - 1].endMin / 1440) * 100 : 0;
     const tailPct = Math.max(0, 100 - lastEndPct);
@@ -305,7 +305,7 @@
                 // при нескольких дорожках карточка узкая — время не помещается
                 (n > 1 ? " is-narrow" : "");
               const style = `top:${top}%;height:${h}%;left:${left}%;width:${w}%;` +
-                            (n > 1 ? "--lanes:" + n + ";" : "");
+                (n > 1 ? "--lanes:" + n + ";" : "");
 
               if (e.kind === "absent") {
                 return `<div class="ev absent${cls}" style="${style}"
@@ -417,8 +417,8 @@
       <div class="tl-body">
         <div class="tl-head" style="--cols:${data.lines.length}">
           ${data.lines
-            .map((l) => `<div>${icon("bars")}<span>Линия ${l}</span></div>`)
-            .join("")}
+        .map((l) => `<div>${icon("bars")}<span>Линия ${l}</span></div>`)
+        .join("")}
         </div>
         <div class="tl-row" style="--cols:${data.lines.length};--row-h:104px">${cols}</div>
       </div>
@@ -519,11 +519,11 @@
         <div class="panel-title">Последние события</div>
         <div class="panel-sub">Хронологически</div>
         ${evRows
-          ? `<table class="ev-table">
+        ? `<table class="ev-table">
               <thead><tr><th>Время</th><th>Линия</th><th>Сотрудник</th><th class="num">Длит.</th><th class="num">Ущерб</th></tr></thead>
               <tbody>${evRows}</tbody>
             </table>`
-          : '<div class="empty">Простоев не зафиксировано</div>'}
+        : '<div class="empty">Простоев не зафиксировано</div>'}
       </div>
     </div>`;
   }
@@ -645,8 +645,10 @@
     // По линиям
     const byLine = data.lines.map((l) => {
       const le = evs.filter((e) => e.line === l);
-      return { line: l, n: le.length, sec: le.reduce((a, b) => a + b.durationSec, 0),
-               loss: le.reduce((a, b) => a + b.loss, 0) };
+      return {
+        line: l, n: le.length, sec: le.reduce((a, b) => a + b.durationSec, 0),
+        loss: le.reduce((a, b) => a + b.loss, 0)
+      };
     });
     const maxLineSec = Math.max(1, ...byLine.map((r) => r.sec));
 
@@ -887,7 +889,7 @@
     }
     return [["Дата", "Линия", "Сотрудник", "Начало", "Конец", "Длительность, мин", "Ущерб, ₽"]].concat(
       evs.map((e) => [e.day, e.line, e.employeeFull, e.start, e.end,
-                      Math.round(e.durationSec / 60), Math.round(e.loss)])
+      Math.round(e.durationSec / 60), Math.round(e.loss)])
     );
   }
 
@@ -914,11 +916,11 @@
       }
       switch (target) {
         case "cameras": el.innerHTML = renderCameras(); break;
-        case "lines":   el.innerHTML = renderLines(); break;
-        case "overview":el.innerHTML = renderOverview(); break;
-        case "employees":el.innerHTML = renderEmployees(); break;
+        case "lines": el.innerHTML = renderLines(); break;
+        case "overview": el.innerHTML = renderOverview(); break;
+        case "employees": el.innerHTML = renderEmployees(); break;
         case "reports": el.innerHTML = renderReports(); break;
-        case "settings":el.innerHTML = renderSettings(); break;
+        case "settings": el.innerHTML = renderSettings(); break;
         default: el.innerHTML = renderCameras();
       }
       // Не сбрасываем прокрутку при перерисовке того же раздела (смена даты)
@@ -1041,8 +1043,8 @@
       on(root, "click", "#empExport", () => {
         const rows = [["ID", "Сотрудник", "Должность", "Линия", "Смена", "Статус", "Отсутствие, мин", "Ущерб, ₽"]].concat(
           data.employees.map((e) => [e.id, e.name, e.position, e.line, e.shift,
-            e.status === "work" ? "На месте" : e.status === "absent" ? "Отсутствует" : "Отпуск",
-            e.absentMin, Math.round(e.lost)])
+          e.status === "work" ? "На месте" : e.status === "absent" ? "Отсутствует" : "Отпуск",
+          e.absentMin, Math.round(e.lost)])
         );
         downloadCSV("promvizor-employees.csv", rows);
         toast("CSV выгружен");

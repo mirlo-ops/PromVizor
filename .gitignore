@@ -1,5 +1,9 @@
-# Secrets
+# Секреты
 .env
+
+# OpenCode: локальная конфигурация, содержит apiKey провайдера
+opencode.json
+opencode.jsonc
 
 # Python
 __pycache__/
