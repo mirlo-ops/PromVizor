@@ -9,6 +9,10 @@
   одновременно: блокировки не мешают друг другу;
 * внешние ключи включены явно (`PRAGMA foreign_keys`) — в SQLite они
   выключены по умолчанию, и каскадное удаление не работало бы;
+* **соединение на поток** — FastAPI выполняет обычные (не async)
+  endpoints в пуле потоков, а `sqlite3` запрещает использовать
+  соединение из чужого потока. Одно общее соединение падало бы с
+  ошибкой на каждом запросе, поэтому у каждого потока своё;
 * путь к базе берётся из настроек (`DATABASE_PATH`), по умолчанию
   `promvizor.db`.
 
@@ -22,8 +26,9 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from app.core.config import settings
 from app.database.models import SCHEMA_STATEMENTS, SCHEMA_VERSION, Table
@@ -32,41 +37,64 @@ from app.database.models import SCHEMA_STATEMENTS, SCHEMA_VERSION, Table
 META_TABLE = "schema_meta"
 META_KEY = "version"
 
+#: Имя общей базы в памяти для `:memory:`.
+#: Обычный `:memory:` создаёт отдельную пустую базу в каждом потоке,
+#: поэтому используется общий кэш: так все потоки видят одни данные.
+_MEMORY_URI = "file:promvizor_shared?mode=memory&cache=shared"
+
 
 class Database:
     """Обёртка над соединением с SQLite.
 
-    Экземпляр можно использовать как менеджер контекста — соединение
-    закроется автоматически:
+    Экземпляр можно использовать как менеджер контекста — соединения
+    закроются автоматически:
 
         with Database() as db:
             db.execute("SELECT 1")
+
+    Потокобезопасна: внутри держится не одно соединение, а по одному
+    на поток (см. описание модуля).
     """
 
     def __init__(self, path: Optional[str] = None, timeout: float = 10.0) -> None:
         self.path = str(path or settings.database_path)
         self.timeout = float(timeout)
-        self._conn: Optional[sqlite3.Connection] = None
+
+        # Приватное хранилище потока: у каждого потока своё соединение
+        self._local = threading.local()
+        # Реестр созданных соединений — чтобы close() закрыл их все
+        self._connections: List[sqlite3.Connection] = []
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
     # Подключение
     # ------------------------------------------------------------------ #
     @property
     def conn(self) -> sqlite3.Connection:
-        """Соединение; при первом обращении создаётся."""
-        if self._conn is None:
-            self._conn = self._connect()
-        return self._conn
+        """Соединение текущего потока; при первом обращении создаётся."""
+        existing = getattr(self._local, "conn", None)
+        if existing is None:
+            existing = self._open()
+            self._local.conn = existing
+        return existing
 
-    def _connect(self) -> sqlite3.Connection:
-        # ":memory:" — особый случай: каталога создавать не нужно
-        if self.path != ":memory:":
-            parent = Path(self.path).expanduser().resolve().parent
-            parent.mkdir(parents=True, exist_ok=True)
-            self.path = str(Path(self.path).expanduser())
+    @property
+    def _conn(self) -> Optional[sqlite3.Connection]:
+        """Совместимость: соединение текущего потока или None."""
+        return getattr(self._local, "conn", None)
+
+    def _open(self) -> sqlite3.Connection:
+        """Создаёт соединение для текущего потока."""
+        in_memory = self.path == ":memory:"
+        if not in_memory:
+            # Каталог создаётся один раз, а не при каждом подключении,
+            # иначе потоки мешали бы друг другу записью в self.path
+            resolved = Path(self.path).expanduser().resolve()
+            resolved.parent.mkdir(parents=True, exist_ok=True)
 
         conn = sqlite3.connect(
-            self.path,
+            _MEMORY_URI if in_memory else str(Path(self.path).expanduser()),
+            uri=in_memory,
             timeout=self.timeout,
             # Автокоммит. По умолчанию sqlite3 в Python сам открывает
             # транзакцию перед INSERT/UPDATE и НЕ коммитит её — данные
@@ -90,13 +118,39 @@ class Database:
                 pass
 
         conn.execute("PRAGMA synchronous = NORMAL")
+
+        with self._lock:
+            self._connections.append(conn)
         return conn
 
     def close(self) -> None:
-        """Закрывает соединение, если оно было открыто."""
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        """Закрывает все соединения, созданные в потоках."""
+        with self._lock:
+            connections, self._connections = self._connections, []
+
+        for conn in connections:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                # Закрытие не должно падать из-за одного соединения:
+                # остальные всё равно нужно освободить
+                pass
+
+        self._local = threading.local()
+
+    def close_current_thread(self) -> None:
+        """Закрывает соединение текущего потока, не трогая остальные."""
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            return
+        with self._lock:
+            if conn in self._connections:
+                self._connections.remove(conn)
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+        self._local = threading.local()
 
     # ------------------------------------------------------------------ #
     # Схема

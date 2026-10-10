@@ -223,9 +223,10 @@ class EventRepository:
     ) -> List[DowntimeEvent]:
         """Последние события простоя, свежие сверху.
 
-        По умолчанию возвращаются только завершённые (DOWNTIME_FINISHED):
-        начатое простой ещё не имеет ни длительности, ни ущерба,
-        и в отчётах оно мешает.
+        Возвращаются оба типа событий: и DOWNTIME_STARTED, и
+        DOWNTIME_FINISHED. Начатое простой нужно видеть в ленте —
+        оно показывает, что линия стоит прямо сейчас. Длительность и
+        ущерб у него нулевые, поскольку простой ещё не завершён.
         """
         limit = _safe_limit(limit)
         where: List[str] = []
@@ -252,6 +253,40 @@ class EventRepository:
             f"SELECT * FROM {Table.DOWNTIME_EVENTS} WHERE {Column.ID} = ?", (int(event_id),)
         )
         return row_to_downtime_event(row) if row else None
+
+    def count_events(
+        self,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        camera_id: Optional[int] = None,
+        event_type: Optional[str] = None,
+    ) -> int:
+        """Сколько событий подходит под фильтр — без учёта limit.
+
+        Нужно API, чтобы показать «показано 20 из 143»: по ограниченной
+        выборке это число узнать нельзя, а пользователю полезно.
+        """
+        where: List[str] = []
+        params: List[object] = []
+
+        if since:
+            where.append(f"{Column.CREATED_AT} >= ?")
+            params.append(since)
+        if until:
+            where.append(f"{Column.CREATED_AT} <= ?")
+            params.append(until)
+        if camera_id is not None:
+            where.append(f"{Column.CAMERA_ID} = ?")
+            params.append(int(camera_id))
+        if event_type is not None:
+            where.append(f"{Column.EVENT} = ?")
+            params.append(event_type)
+
+        sql = f"SELECT COUNT(*) FROM {Table.DOWNTIME_EVENTS}"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+
+        return int(self.db.query_value(sql, tuple(params), default=0))
 
     def events_between(
         self,

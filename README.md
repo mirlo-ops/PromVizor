@@ -7,8 +7,9 @@
 простой, считает таймер и условный ущерб, сохраняет событие
 и показывает результат на Dashboard.
 
-**Стадия проекта:** MVP / Alpha — реализован только видео-этап,
-ядро обнаружения простоя и API ещё не написаны.
+**Стадия проекта:** MVP / Alpha — готовы видео, обнаружение простоя,
+экономика, хранение и API. Dashboard наполняется данными, Telegram
+не начат, DEMO-ролики ожидаются.
 Актуальный статус по этапам — в файле [`Handoff Lev.txt`](Handoff%20Lev.txt).
 
 ---
@@ -22,7 +23,7 @@
 | 3. Event Engine | ✅ готов |
 | 4. Экономика (downtime, loss) | ✅ готов |
 | 5. Database (SQLite) | ✅ готов |
-| 6. API (FastAPI) | ❌ не начат |
+| 6. API (FastAPI) | ✅ готов |
 | 7. Dashboard | ⚠️ интерфейс готов, данных нет |
 | 8. Telegram | ❌ не начат (зона Gasun) |
 | 9. Demo-видео | ❌ роликов нет |
@@ -99,7 +100,8 @@ promvizor/
 │   ├── video/         # VideoSource, DEMO / WEBCAM / RTSP, фабрика
 │   ├── vision/        # ROI, детектор человека (YOLO), детектор движения
 │   ├── engine/        # Event Engine: простой, события, ущерб
-│   └── database/      # SQLite: схема, репозиторий, история
+│   ├── database/      # SQLite: схема, репозиторий, история
+│   └── api/           # FastAPI: endpoints, схемы, демо-данные
 │
 ├── web/               # Dashboard (HTML + CSS + JS, без сборки)
 │   ├── css/styles.css
@@ -169,6 +171,7 @@ with create_source("demo", scenario="stopped_no_person") as src:
 .venv/bin/python tests/test_engine.py      # 19 тестов
 .venv/bin/python tests/test_economics.py   # 21 тест
 .venv/bin/python tests/test_database.py    # 27 тестов
+.venv/bin/python tests/test_api.py         # 26 тестов
 ```
 
 Тесты не требуют видео и работают без YOLO: движок принимает
@@ -210,6 +213,52 @@ with Database("promvizor.db") as db:
 
 ---
 
+## API
+
+Запуск сервера:
+
+```bash
+.venv/bin/python -m app.api.main
+```
+
+Документация с примерами запросов и ответов: `http://127.0.0.1:8000/docs`
+
+| Метод | Путь | Назначение |
+|---|---|---|
+| GET | `/api/status` | текущее состояние системы |
+| GET | `/api/status/history` | снимки состояния, свежие сверху |
+| GET | `/api/events` | история простоя, фильтры и пагинация |
+| GET | `/api/events/{id}` | одно событие, 404 если нет |
+| GET | `/api/statistics` | итоги за период |
+| GET | `/api/statistics/by-camera` | итоги по камерам |
+| GET | `/api/cameras` | зарегистрированные камеры |
+| GET | `/api/config` | стоимость минуты и настройки |
+| GET | `/api/health` | живость сервиса и базы |
+| POST | `/api/demo/seed` | наполнить базу демо-данными |
+
+Примеры:
+
+```bash
+curl localhost:8000/api/status
+curl "localhost:8000/api/events?limit=20&event_type=DOWNTIME_FINISHED"
+curl "localhost:8000/api/statistics?since=2026-10-01&until=2026-10-10"
+
+# демо-данные, чтобы было что показать до подключения видео
+curl -X POST "localhost:8000/api/demo/seed?days_back=7"
+```
+
+Особенности:
+
+* **Ущерб не пересчитывается в API** — приходит из базы готовым.
+* **Пустая база — не ошибка:** `/api/status` отдаёт `UNKNOWN` с нулями.
+* **API только читает.** Запись идёт из процесса обработки видео
+  прямо в базу, так API нельзя испортить внешним запросом.
+* **Демо-данные — только по явному запросу** и по той же формуле
+  `calculate_loss()`. Молча наполнять базу нельзя: интерфейс показал бы
+  цифры, которых на заводе нет.
+
+---
+
 ## Расчёт ущерба
 
 ```text
@@ -237,6 +286,9 @@ loss = downtime_minutes × cost_per_minute
 | `DEFAULT_SOURCE` | `demo` / `webcam` / `rtsp` |
 | `RTSP_URL` | адрес IP-камеры для источника RTSP |
 | `DATABASE_PATH` | путь к файлу SQLite |
+| `API_HOST` | адрес прослушивания API (по умолчанию 127.0.0.1) |
+| `API_PORT` | порт API (по умолчанию 8000; CLI `uvicorn` его игнорирует) |
+| `API_CORS_ORIGINS` | источники через запятую; пусто — любой |
 | `TELEGRAM_BOT_TOKEN` | токен Telegram-бота (зона Gasun) |
 | `TELEGRAM_CHAT_ID` | чат для уведомлений (зона Gasun) |
 

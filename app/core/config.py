@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.core.env import env_float, env_int, env_str, load_env
+from app.core.env import env_bool, env_float, env_int, env_str, load_env
 
 
 class DemoScenario:
@@ -54,6 +54,17 @@ class Settings:
 
     # --- База данных ---
     database_path: str = "promvizor.db"
+
+    # --- API (Этап 6) ---
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+    # Список источников через запятую. Пустая строка — «разрешить любой»:
+    # удобно в Alpha, когда Dashboard открыт как локальный файл.
+    # Для рабочего сервера origins задаётся явно.
+    api_cors_origins: str = ""
+    # Демо-режим: API сам наполняет базу примерами, чтобы Dashboard
+    # и Telegram было что показать до подключения видео (Этап 10).
+    api_seed_demo: bool = False
 
     # --- ROI (контролируемая зона камеры, Этап 2) ---
     # Координаты нормализованы: 0.0–1.0 от размера кадра, поэтому ROI
@@ -110,6 +121,11 @@ def _from_env() -> "Settings":
         rtsp_url=env_str("RTSP_URL", ""),
         # --- База данных ---
         database_path=env_str("DATABASE_PATH", "promvizor.db"),
+        # --- API ---
+        api_host=env_str("API_HOST", "127.0.0.1"),
+        api_port=env_int("API_PORT", 8000),
+        api_cors_origins=env_str("API_CORS_ORIGINS", ""),
+        api_seed_demo=env_bool("API_SEED_DEMO", False),
         # --- Telegram ---
         telegram_bot_token=env_str("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=env_str("TELEGRAM_CHAT_ID", ""),

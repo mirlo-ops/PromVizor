@@ -6,10 +6,16 @@ opencv-python-headless>=4.10   # на сервере без GUI; для виде
 numpy>=2.0
 ultralytics>=8.3               # YOLO — Person Detection (Этап 2); тянет torch (~554 МБ)
 
-# --- Lev: API / Database (Этапы 5–6) ---
-# fastapi>=0.115
-# uvicorn[standard]>=0.32
-# python-dotenv>=1.0           # загрузка .env (RTSP_URL, TELEGRAM_*)
+# --- Lev: API (Этап 6) ---
+fastapi>=0.115
+uvicorn>=0.32
 
 # --- COMMON: тесты ---
 # pytest>=8.0
+
+# Тесты API используют TestClient из fastapi.testclient, которому нужен
+# httpx. Ставится вместе с тестами, в продакшене не требуется:
+#   .venv/bin/pip install httpx
+
+# python-dotenv НЕ используется: файл .env разбирает собственный
+# загрузчик app/core/env.py. Зависимость осталась бы лишней.
