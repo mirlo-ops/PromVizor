@@ -21,12 +21,12 @@
 | 2. Computer Vision (YOLO, ROI, motion) | ✅ готов |
 | 3. Event Engine | ✅ готов |
 | 4. Экономика (downtime, loss) | ✅ готов |
-| 5. Database (SQLite) | ❌ не начат |
+| 5. Database (SQLite) | ✅ готов |
 | 6. API (FastAPI) | ❌ не начат |
 | 7. Dashboard | ⚠️ интерфейс готов, данных нет |
 | 8. Telegram | ❌ не начат (зона Gasun) |
 | 9. Demo-видео | ❌ роликов нет |
-| 10. Сквозная демонстрация | ❌ невозможна без этапов 5–6 |
+| 10. Сквозная демонстрация | ❌ невозможна без этапа 6 |
 
 Подробный разбор — раздел 22 файла Handoff.
 
@@ -98,13 +98,14 @@ promvizor/
 │   ├── core/          # контракт, типы, настройки, формула ущерба
 │   ├── video/         # VideoSource, DEMO / WEBCAM / RTSP, фабрика
 │   ├── vision/        # ROI, детектор человека (YOLO), детектор движения
-│   └── engine/        # Event Engine: простой, события, ущерб
+│   ├── engine/        # Event Engine: простой, события, ущерб
+│   └── database/      # SQLite: схема, репозиторий, история
 │
 ├── web/               # Dashboard (HTML + CSS + JS, без сборки)
 │   ├── css/styles.css
 │   └── js/            # data, components, sections, app
 │
-├── tests/             # тесты vision и engine
+├── tests/             # тесты vision, engine, economics, database
 ├── demo/videos/       # DEMO-ролики сценариев (COMMON)
 │
 ├── requirements.txt
@@ -167,10 +168,45 @@ with create_source("demo", scenario="stopped_no_person") as src:
 .venv/bin/python tests/test_vision.py      # 17 тестов
 .venv/bin/python tests/test_engine.py      # 19 тестов
 .venv/bin/python tests/test_economics.py   # 21 тест
+.venv/bin/python tests/test_database.py    # 27 тестов
 ```
 
 Тесты не требуют видео и работают без YOLO: движок принимает
 результаты Vision напрямую, а детектор человека — подставной backend.
+
+---
+
+## Хранение данных
+
+SQLite, путь из `DATABASE_PATH` (по умолчанию `promvizor.db`).
+Используется только стандартный `sqlite3` — без ORM.
+
+```python
+from app.database import Database, EventRepository
+
+with Database("promvizor.db") as db:
+    repo = EventRepository(db)
+    repo.ensure_camera(1, "Камера №1")
+
+    repo.save_event(event)                 # событие простоя
+    repo.save_status(system_status)        # снимок состояния
+
+    history = repo.recent_events(limit=20)
+    stats = repo.statistics()              # итоги за период
+    current = repo.latest_status()         # для /api/status
+```
+
+Таблицы:
+
+| Таблица | Содержит |
+|---|---|
+| `cameras` | камеры |
+| `downtime_events` | события простоя: начало, конец, длительность, ущерб |
+| `status_log` | снимки состояния: линия, рабочий, простой, ущерб |
+
+Время записи хранится в UTC: локальное время процесса может меняться,
+а история простоя от этого меняться не должна. В самих событиях
+`start_time` и `end_time` остаются в формате «HH:MM».
 
 ---
 
