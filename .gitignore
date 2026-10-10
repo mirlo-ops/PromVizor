@@ -1,5 +1,9 @@
-# Secrets
+# Секреты
 .env
+
+# OpenCode: локальная конфигурация, содержит apiKey провайдера
+opencode.json
+opencode.jsonc
 
 # Python
 __pycache__/
@@ -10,6 +14,15 @@ venv/
 
 # База данных
 *.db
+
+# Выбранный режим камеры (меняется из настроек Dashboard)
+camera_mode.json
+
+# Модели и артефакты (весят десятки мегабайт, качаются автоматически)
+*.pt
+*.onnx
+*.engine
+runs/
 
 # IDE / OS
 .vscode/
