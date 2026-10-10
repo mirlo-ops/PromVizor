@@ -204,17 +204,17 @@ def list_events(
     total = repo.count_events(
         since=since_iso, until=until_iso, camera_id=camera_id, event_type=event_type
     )
-    items = repo.events_between(
+    records = repo.events_with_time(
         since=since_iso,
         until=until_iso,
         camera_id=camera_id,
         event_type=event_type,
         limit=limit + offset,  # offset отсекаем вручную: страницы не перекрываются
     )
-    page = items[offset : offset + limit]
+    page = records[offset : offset + limit]
 
     return EventListResponse(
-        items=[EventResponse(**event.to_dict()) for event in page],
+        items=[EventResponse(**record.to_dict()) for record in page],
         count=len(page),
         total=total,
     )
@@ -234,13 +234,13 @@ def get_event(
     404, если события нет: это штатная ситуация (запрошено удалённое
     или выдуманное id), клиент должен это понимать, а не получать 500.
     """
-    event = repo.get_event(event_id)
-    if event is None:
+    record = repo.get_event_with_time(event_id)
+    if record is None:
         raise HTTPException(
             status_code=HTTP_404,
             detail=f"Событие с id={event_id} не найдено",
         )
-    return EventResponse(**event.to_dict())
+    return EventResponse(**record.to_dict())
 
 
 # --------------------------------------------------------------------------- #

@@ -5,6 +5,7 @@
   "use strict";
 
   const { data, util: U } = global.PV;
+  const api = global.PV.api;
   const { icon, toast } = global.PV.c;
   const sections = global.PV.sections;
 
@@ -123,17 +124,43 @@
   }
 
   /* ---------- статус системы ---------- */
+  /* Показывает не выдуманное «система работает», а реальное
+     состояние связи с backend'ом: оператор должен видеть, что
+     данные не приходят, а не получать нули как показание. */
   function updateSystemPill() {
-    const anyDown = data.cameras.some((c) => !c.online) ? false : false;
     const pill = $("systemPill");
-    pill.classList.toggle("is-off", anyDown);
-    $("systemDot").className = "dot " + (anyDown ? "dot-red" : "dot-green");
-    $("systemText").textContent = anyDown ? "Система не работает" : "Система работает";
+    /* Связь определяется по последнему запросу, а не по наличию
+       данных: при обрыве на экране остаются последние показания,
+       и называть их «система работает» было бы враньём. */
+    const live = api.ready() && data.isLive();
+    const dot = $("systemDot");
+    const text = $("systemText");
+
+    if (live) {
+      pill.classList.remove("is-off");
+      dot.className = "dot dot-green";
+      text.textContent = "Система работает";
+    } else {
+      pill.classList.add("is-off");
+      dot.className = "dot dot-amber";
+      const reason = api.lastError();
+      text.textContent = reason ? "Нет связи с сервером" : "Нет данных";
+      pill.title = reason ? "Backend недоступен: " + reason : "Данные с сервера не получены";
+    }
   }
 
-  $("systemPill").addEventListener("click", () => {
+  $("systemPill").addEventListener("click", async () => {
+    await data.reload(sections.state.day);
     updateSystemPill();
-    toast("Проверка связи с backend: соединение установлено");
+    renderTopbar();
+    sections.renderSection(currentSection);
+    /* Проверяем связь, а не наличие данных: при обрыве прежние
+       показания остаются на экране, и по ним обрыв не виден. */
+    if (api.ready()) {
+      toast("Связь с backend установлена");
+    } else {
+      toast("Backend недоступен: " + (api.lastError() || "нет данных"), "err");
+    }
   });
 
   /* ---------- горячие клавиши ---------- */
@@ -165,7 +192,14 @@
   function syncAutoRefresh() {
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
     if (sections.state.settings.auto_refresh) {
-      refreshTimer = setInterval(() => {
+      refreshTimer = setInterval(async () => {
+        /* Сначала обновляем данные с сервера, потом перерисовываем.
+           Обратный порядок показал бы прошлые цифры ещё пять секунд,
+           а на экране мониторинга это выглядит как зависание.
+           reload, а не load: иначе день уже в кэше и запрос к
+           серверу не уйдёт — состояние замрёт навсегда. */
+        await data.reload(sections.state.day);
+        updateSystemPill();
         if (currentSection === "monitoring") sections.render(sections.state.tab);
         tick();
       }, 5000);
@@ -197,11 +231,34 @@
     initYearSelect();
     initBrand();
     initKeys();
-    updateSystemPill();
 
     sections.bind(document.getElementById("content"));
+
+    /* Первая отрисовка ждёт данных с сервера.
+       Иначе на экране на секунду мелькнут моковые числа, а потом
+       сменятся настоящими — оператор успел бы увидеть чужие. */
     setSection("monitoring");
     setTab(currentTab);
+
+    data.load(sections.state.day).then(() => {
+      /* Стоимость минуты приходит с backend'а: показываем ту,
+         что он считает, а не значение из локальных настроек. */
+      const cfg = data.config();
+      if (cfg && cfg.cost_per_minute) {
+        sections.state.settings.cost_per_minute = cfg.cost_per_minute;
+        sections.syncCostPerMinute();
+      }
+      updateSystemPill();
+      renderTopbar();
+      sections.renderSection(currentSection);
+      /* Лог печатается здесь, а не в конце boot(): к этому
+         моменту источник данных уже известен. Иначе в консоли
+         всегда был бы «mock» — загрузка ещё не завершилась. */
+      console.log(
+        "ПромВизор: данные получены. Источник:", data.source(),
+        data.isLive() ? "" : "причина: " + (api.lastError() || "нет данных")
+      );
+    });
 
     tick();
     setInterval(tick, 1000);
@@ -215,7 +272,9 @@
       syncAutoRefresh();
     };
 
-    console.log("ПромВизор инициализирован. Раздел:", currentSection, "Вкладка:", currentTab);
+    console.log(
+      "ПромВизор инициализирован. Раздел:", currentSection, "Вкладка:", currentTab
+    );
   }
 
   if (document.readyState === "loading") {

@@ -1,4 +1,4 @@
-"""Точка входа API «ПромВизор» (Этап 6 — FastAPI).
+"""Точка входа API «ПромВизор» (Этап 6 — FastAPI, Этап 7 — раздача Dashboard).
 
 Запуск:
 
@@ -8,24 +8,35 @@
 
     .venv/bin/uvicorn app.api.main:app --reload
 
-Документация после запуска: http://127.0.0.1:8000/docs
+После запуска доступны:
+
+* Dashboard — http://127.0.0.1:8000/
+* Документация API — http://127.0.0.1:8000/docs
+
+Dashboard раздаётся тем же сервером, а не открывается как локальный
+файл. Причина практическая: браузер запрещает `fetch()` со страницы,
+открытой по `file://`, — «ПромВизор» не смог бы обратиться к API.
+Через один сервер источник один, CORS не нужен вовсе и открыть
+достаточно один адрес вместо двух.
 
 Замечание про демо-данные. Пустая база — это валидное состояние:
 система запустилась, но ещё не обработала ни одного кадра. Наполнять
 её выдуманными событиями молча было бы неверно — Dashboard показал бы
 красивые цифры, которых на заводе нет. Поэтому пример данных
-создаётся только по явному запросу (`API_SEED_DEMO=true` или
-`POST /api/demo/seed`), и такие данные всегда помечены.
+создаётся только по явному запросу (`POST /api/demo/seed`), и такие
+данные всегда помечены.
 """
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncIterator
+from pathlib import Path
+from typing import AsyncIterator, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import close_database, get_database, router
 from app.core.config import settings
@@ -39,6 +50,11 @@ API отдаёт данные Dashboard, Telegram Bot и внешним инте
 таким, как его посчитал backend по формуле
 `длительность (мин) × стоимость минуты`. Клиент только отображает его.
 """
+
+#: Где лежит Dashboard. Путь считается от корня репозитория, а не от
+#: текущего рабочего каталога: запуск из другой папки иначе не нашёл бы
+#: интерфейс.
+WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 
 
 @asynccontextmanager
@@ -71,10 +87,12 @@ app.include_router(router)
 # --------------------------------------------------------------------------- #
 # CORS
 # --------------------------------------------------------------------------- #
-# Dashboard лежит в `web/` и в разработке открывается как локальный
-# файл (`file://`) или с другого порта. Без CORS браузер заблокирует
-# запрос. В Alpha разрешаем любой источник — это удобно, но для рабочего
-# сервера origins нужно задать явно через API_CORS_ORIGINS.
+# Dashboard раздаётся тем же сервером (см. WEB_DIR ниже), поэтому в
+# штатном режиме CORS не нужен вовсе: источник один. Он остаётся на
+# случай, когда Dashboard открывают отдельно — с другого порта или
+# как локальный файл (тогда запросы блокирует браузер).
+# В Alpha пустой список означает «любой источник»; для рабочего сервера
+# origins задаётся явно через API_CORS_ORIGINS.
 _origins = [origin.strip() for origin in settings.api_cors_origins.split(",") if origin.strip()]
 
 app.add_middleware(
@@ -89,13 +107,14 @@ app.add_middleware(
 # --------------------------------------------------------------------------- #
 # Корневые служебные маршруты
 # --------------------------------------------------------------------------- #
-@app.get("/", tags=["служебное"], summary="Информация о сервисе")
+@app.get("/api", tags=["служебное"], summary="Информация о сервисе")
 def root() -> dict:
-    """Корень: где документация и какие есть разделы."""
+    """Список разделов API и адрес Dashboard."""
     return {
         "service": "ПромВизор API",
         "version": "0.1.0",
         "docs": "/docs",
+        "dashboard": "/" if WEB_DIR.is_dir() else None,
         "endpoints": {
             "status": "/api/status",
             "status_history": "/api/status/history",
@@ -123,8 +142,23 @@ def main() -> None:
     )
 
 
+# --------------------------------------------------------------------------- #
+# Dashboard
+# --------------------------------------------------------------------------- #
+# Монтируется последним: StaticFiles отвечает на всё, что не поймано
+# раньше, и иначе перехватил бы /docs и /api.
+#
+# html=True отдаёт web/index.html по адресу "/". Если папки нет
+# (например, при установке только backend'а), монтирование
+# пропускается: API продолжит работать, просто Dashboard не откроется.
+if WEB_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="dashboard")
+else:  # pragma: no cover — зависит от того, как развёрнут проект
+    app.state.dashboard_missing = str(WEB_DIR)
+
+
 if __name__ == "__main__":
     main()
 
 
-__all__ = ["app", "main"]
+__all__ = ["app", "main", "WEB_DIR"]

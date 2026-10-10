@@ -107,12 +107,31 @@ class fixture:
 # --------------------------------------------------------------------------- #
 # Служебные маршруты
 # --------------------------------------------------------------------------- #
-def test_root_lists_endpoints():
+def test_api_index_lists_endpoints():
+    """Описание сервиса живёт на /api: корень отдан Dashboard."""
     with fixture(populate=False) as f:
-        data = f.client.get("/").json()
+        data = f.client.get("/api").json()
         assert data["service"] == "ПромВизор API"
         assert data["endpoints"]["status"] == "/api/status"
         assert data["endpoints"]["events"] == "/api/events"
+
+
+def test_dashboard_is_served_at_root():
+    """Dashboard раздаётся тем же сервером.
+
+    Иначе его пришлось бы открывать как локальный файл, а браузер
+    блокирует fetch со страницы file:// — интерфейс остался бы
+    без данных.
+    """
+    with fixture(populate=False) as f:
+        response = f.client.get("/")
+        assert response.status_code == 200
+        assert "ПромВизор" in response.text
+
+        for asset in ("/css/styles.css", "/js/api.js", "/js/data.js", "/js/app.js"):
+            response = f.client.get(asset)
+            assert response.status_code == 200, asset
+            assert response.text, asset
 
 
 def test_health():
@@ -282,6 +301,32 @@ def test_cameras_list():
 # --------------------------------------------------------------------------- #
 # Демо-данные
 # --------------------------------------------------------------------------- #
+def test_event_carries_recorded_date():
+    """Событие должно содержать дату записи: по одним «ЧЧ:ММ»
+    сгруппировать события по суткам невозможно."""
+    with fixture() as f:
+        body = f.client.get("/api/events").json()
+        for item in body["items"]:
+            assert item["created_at"], "нет метки времени записи"
+            assert item["created_at"].startswith("2026-10-")
+
+
+def test_event_by_id_includes_recorded_date():
+    with fixture() as f:
+        body = f.client.get("/api/events/1").json()
+        assert "created_at" in body
+        assert body["created_at"]
+
+
+def test_events_filters_by_recorded_date():
+    with fixture() as f:
+        body = f.client.get(
+            "/api/events",
+            params={"since": "2026-10-01", "until": "2026-10-01"},
+        ).json()
+        assert all(item["created_at"].startswith("2026-10-01") for item in body["items"])
+
+
 def test_demo_seed_creates_data():
     with fixture(populate=False) as f:
         response = f.client.post("/api/demo/seed")

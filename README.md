@@ -8,8 +8,8 @@
 и показывает результат на Dashboard.
 
 **Стадия проекта:** MVP / Alpha — готовы видео, обнаружение простоя,
-экономика, хранение и API. Dashboard наполняется данными, Telegram
-не начат, DEMO-ролики ожидаются.
+экономика, хранение, API и Dashboard. Telegram не начат, ожидаются
+DEMO-ролики.
 Актуальный статус по этапам — в файле [`Handoff Lev.txt`](Handoff%20Lev.txt).
 
 ---
@@ -24,10 +24,10 @@
 | 4. Экономика (downtime, loss) | ✅ готов |
 | 5. Database (SQLite) | ✅ готов |
 | 6. API (FastAPI) | ✅ готов |
-| 7. Dashboard | ⚠️ интерфейс готов, данных нет |
+| 7. Dashboard | ✅ готов, работает на реальных данных |
 | 8. Telegram | ❌ не начат (зона Gasun) |
 | 9. Demo-видео | ❌ роликов нет |
-| 10. Сквозная демонстрация | ❌ невозможна без этапа 6 |
+| 10. Сквозная демонстрация | ❌ не хватает только DEMO-роликов |
 
 Подробный разбор — раздел 22 файла Handoff.
 
@@ -105,9 +105,9 @@ promvizor/
 │
 ├── web/               # Dashboard (HTML + CSS + JS, без сборки)
 │   ├── css/styles.css
-│   └── js/            # data, components, sections, app
+│   └── js/            # api, data, components, sections, app
 │
-├── tests/             # тесты vision, engine, economics, database
+├── tests/             # тесты vision, engine, economics, database, api, web
 ├── demo/videos/       # DEMO-ролики сценариев (COMMON)
 │
 ├── requirements.txt
@@ -171,7 +171,8 @@ with create_source("demo", scenario="stopped_no_person") as src:
 .venv/bin/python tests/test_engine.py      # 19 тестов
 .venv/bin/python tests/test_economics.py   # 21 тест
 .venv/bin/python tests/test_database.py    # 27 тестов
-.venv/bin/python tests/test_api.py         # 26 тестов
+.venv/bin/python tests/test_api.py         # 30 тестов
+node tests/test_web_data.js                # 26 тестов
 ```
 
 Тесты не требуют видео и работают без YOLO: движок принимает
@@ -210,6 +211,41 @@ with Database("promvizor.db") as db:
 Время записи хранится в UTC: локальное время процесса может меняться,
 а история простоя от этого меняться не должна. В самих событиях
 `start_time` и `end_time` остаются в формате «HH:MM».
+
+---
+
+## Запуск
+
+```bash
+.venv/bin/python -m app.api.main
+```
+
+Открыть: **http://127.0.0.1:8000/** — это Dashboard, он раздаётся тем
+же сервером. Документация API: `http://127.0.0.1:8000/docs`
+
+Пока база пуста, на Dashboard нечего показывать. Наполнить
+демонстрационными данными (по той же формуле ущерба, что и в рабочем
+режиме):
+
+```bash
+curl -X POST "localhost:8000/api/demo/seed?days_back=7"
+```
+
+Обновить демо-данные с очисткой:
+
+```bash
+curl -X POST "localhost:8000/api/demo/seed?days_back=7&replace=true"
+```
+
+> Демо — снимок на момент наполнения. Идущий простой «стареет» вместе
+> с реальным временем, а снимок статуса остаётся прежним. Со временем
+> они расходятся — перезапустите наполнение. В рабочем режиме этого
+> расхождения нет: события пишутся непрерывно.
+
+Если backend не отвечает, Dashboard показывает демонстрационные данные
+и честно пишет об этом — «Нет связи с сервером». Молча подсовывать
+выдумку нельзя: на экране смотрел бы человек, решивший бы, что линия
+стоит.
 
 ---
 

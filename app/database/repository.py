@@ -30,9 +30,11 @@ from app.database.db import Database
 from app.database.models import (
     CameraRow,
     Column,
+    EventRecord,
     Table,
     build_statistics,
     row_to_downtime_event,
+    row_to_event_record,
     row_to_system_status,
 )
 
@@ -254,6 +256,13 @@ class EventRepository:
         )
         return row_to_downtime_event(row) if row else None
 
+    def get_event_with_time(self, event_id: int) -> Optional[EventRecord]:
+        """Событие по id вместе с меткой времени записи или None."""
+        row = self.db.query_one(
+            f"SELECT * FROM {Table.DOWNTIME_EVENTS} WHERE {Column.ID} = ?", (int(event_id),)
+        )
+        return row_to_event_record(row) if row else None
+
     def count_events(
         self,
         since: Optional[str] = None,
@@ -320,6 +329,44 @@ class EventRepository:
         sql += f" ORDER BY {Column.ID} ASC LIMIT ?"
 
         return [row_to_downtime_event(r) for r in self.db.query_all(sql, tuple(params))]
+
+    def events_with_time(
+        self,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        camera_id: Optional[int] = None,
+        event_type: Optional[str] = None,
+        limit: int = 1000,
+    ) -> List[EventRecord]:
+        """События за период вместе с меткой времени записи.
+
+        Нужно интерфейсу: в контракте только «ЧЧ:ММ», а сгруппировать
+        события по суткам (отчёт за месяц, таймлайн за день) по часам
+        и минутам невозможно.
+        """
+        where: List[str] = []
+        params: List[object] = []
+
+        if since:
+            where.append(f"{Column.CREATED_AT} >= ?")
+            params.append(since)
+        if until:
+            where.append(f"{Column.CREATED_AT} <= ?")
+            params.append(until)
+        if camera_id is not None:
+            where.append(f"{Column.CAMERA_ID} = ?")
+            params.append(int(camera_id))
+        if event_type is not None:
+            where.append(f"{Column.EVENT} = ?")
+            params.append(event_type)
+
+        params.append(_safe_limit(limit, maximum=100_000))
+        sql = f"SELECT * FROM {Table.DOWNTIME_EVENTS}"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += f" ORDER BY {Column.ID} ASC LIMIT ?"
+
+        return [row_to_event_record(r) for r in self.db.query_all(sql, tuple(params))]
 
     # ------------------------------------------------------------------ #
     # Агрегаты

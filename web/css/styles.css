@@ -266,6 +266,60 @@ svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;stroke
 .page-title h1{font-size:26px;font-weight:600;letter-spacing:-.3px}
 .page-sub{color:var(--muted);font-size:14.5px;margin-top:-14px;margin-bottom:20px}
 
+/* =============== ТЕКУЩЕЕ СОСТОЯНИЕ (раздел 17 Handoff) =============== */
+/* Четыре поля LINE / PERSON / DOWNTIME / LOSS — строго по контракту
+   SystemStatus. Значения приходят с backend'а готовыми. */
+.now-panel{padding:18px 22px 16px;margin-bottom:20px}
+.now-head{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.now-head svg{width:19px;height:19px;color:var(--ink)}
+.now-head h2{font-size:19px;font-weight:600}
+.now-sync{
+  margin-left:auto;font-size:12.5px;padding:3px 10px;border-radius:999px;
+  border:1px solid var(--border);color:var(--muted);background:var(--card-2);
+}
+.now-sync.is-live{color:var(--green);border-color:var(--green-border);background:var(--green-soft)}
+.now-sync.is-mock{color:var(--amber);border-color:var(--line);background:var(--amber-soft)}
+
+.now-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.now-cell{
+  border:1px solid var(--border);border-radius:10px;padding:12px 14px;
+  background:var(--card-2);
+}
+.now-k{font-size:11px;letter-spacing:.09em;color:var(--muted);margin-bottom:7px;font-weight:600}
+.now-v{
+  display:flex;align-items:center;gap:7px;font-size:17px;font-weight:600;
+  letter-spacing:-.2px;
+}
+.now-v svg{width:17px;height:17px;flex:none}
+.now-v.is-working{color:var(--green)}
+.now-v.is-stopped{color:var(--red)}
+.now-v.is-unknown{color:var(--muted)}
+.now-v.is-ok{color:var(--green)}
+.now-v.is-bad{color:var(--red)}
+.now-foot{font-size:12.5px;color:var(--muted);margin-top:12px}
+
+.now-empty{
+  display:flex;align-items:center;gap:10px;color:var(--muted);
+  font-size:14px;padding:10px 0 4px;
+}
+.now-empty svg{width:19px;height:19px;color:var(--amber);flex:none}
+
+/* Предупреждение о демонстрационных данных раздела.
+   Появляется там, где backend данных не ведёт и показан пример. */
+.notice{
+  display:flex;align-items:flex-start;gap:10px;padding:11px 14px;margin-bottom:16px;
+  border:1px solid var(--line);border-left:3px solid var(--amber);
+  border-radius:8px;background:var(--amber-soft);color:var(--ink-2);font-size:13.5px;
+}
+.notice svg{width:18px;height:18px;flex:none;color:var(--amber);margin-top:1px}
+
+@media(max-width:900px){
+  .now-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:520px){
+  .now-grid{grid-template-columns:1fr}
+}
+
 /* =============== CAMERAS TAB =============== */
 .cam-layout{display:grid;grid-template-columns:1fr;gap:20px}
 
@@ -468,6 +522,16 @@ svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;stroke
 }
 .ev:hover{filter:brightness(.975);box-shadow:0 6px 16px var(--shadow-pop);z-index:5}
 .ev.absent{background:var(--red-soft);border-color:var(--red-border)}
+/* Идущий прямо сейчас простой: мигающая рамка отличает его от уже
+   завершённых, чтобы оператель не принял его за завершённый. */
+.ev.absent.is-open{border-style:dashed;animation:pv-pulse 1.8s ease-in-out infinite}
+@keyframes pv-pulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(239,74,92,0)}
+  50%{box-shadow:0 0 0 2px rgba(239,74,92,.35)}
+}
+@media(prefers-reduced-motion:reduce){
+  .ev.absent.is-open{animation:none}
+}
 .ev.present{background:var(--fill-2);border-color:var(--line)}
 .ev-icon{width:24px;height:24px;flex:none;color:var(--red);margin-top:2px}
 .ev.present .ev-icon{color:var(--present)}

@@ -72,14 +72,26 @@ def _stamp(moment: datetime) -> str:
     return moment.replace(microsecond=0).isoformat()
 
 
-def _pick_downtimes(rng: random.Random) -> List[Tuple[datetime, datetime]]:
+def _pick_downtimes(
+    rng: random.Random,
+    window: Tuple[int, int],
+) -> List[Tuple[datetime, datetime]]:
     """Выбирает интервалы простоя на день.
 
     Интервалы короткие (4–40 минут) и не пересекаются: иначе простой
     на полсмены выглядел бы как остановка завода, а не как заминки
     конвейера. Возвращает пары «момент внутри суток начала, конец».
+
+    `window` — границы в минутах от полуночи. Для прошедших дней это
+    рабочая смена, для сегодняшнего — только уже прошедшая часть
+    суток: иначе простои уехали бы в будущее и Dashboard за «сегодня»
+    оказался бы пустым.
     """
-    shift_minutes = (_WORKDAY_END_HOUR - _WORKDAY_START_HOUR) * 60
+    start_minute, end_minute = window
+    shift_minutes = end_minute - start_minute
+    if shift_minutes <= _MIN_DOWNTIME_MINUTES:
+        return []  # сутки ещё толком не начались
+
     # Сколько минут суммарно линия может простаивать за смену
     budget = int(shift_minutes * _DOWNTIME_SHARE)
 
@@ -100,12 +112,28 @@ def _pick_downtimes(rng: random.Random) -> List[Tuple[datetime, datetime]]:
     gaps = sorted(rng.randint(0, slack) for _ in range(count + 1))
 
     intervals: List[Tuple[datetime, datetime]] = []
-    cursor = _WORKDAY_START_HOUR * 60 + gaps[0]
+    cursor = start_minute + gaps[0]
     for index, span in enumerate(spans):
         start = datetime(2026, 1, 1) + timedelta(minutes=cursor)
         intervals.append((start, start + timedelta(minutes=span)))
         cursor += span + (gaps[index + 1] - gaps[index])
     return intervals
+
+
+def _day_window(day: datetime, now: datetime) -> Tuple[int, int]:
+    """Границы в минутах от полуночи, в которые можно ставить простой.
+
+    Прошедший день — вся рабочая смена. Сегодняшний — только то,
+    что уже прошло, с запасом в 5 минут на «сейчас».
+    """
+    workday = (_WORKDAY_START_HOUR * 60, _WORKDAY_END_HOUR * 60)
+    if day < now.replace(hour=0, minute=0, second=0, microsecond=0):
+        return workday
+
+    elapsed = (now - day).total_seconds() / 60 - 5
+    # Первый час суток оставляем пустым: смена начинается не в полночь,
+    # и простой в 00:20 выглядел бы неправдоподобно
+    return (max(_WORKDAY_START_HOUR * 60, 60), int(elapsed))
 
 
 def generate_events(
@@ -128,7 +156,7 @@ def generate_events(
     # история в Dashboard окажется перевёрнутой.
     for day_offset in reversed(range(days_back)):
         day = today - timedelta(days=day_offset)
-        for start_in_day, end_in_day in _pick_downtimes(rng):
+        for start_in_day, end_in_day in _pick_downtimes(rng, _day_window(day, now)):
             # Смещение внутри суток прибавляем к началу дня
             start = day + timedelta(
                 hours=start_in_day.hour, minutes=start_in_day.minute
@@ -236,6 +264,41 @@ def generate_statuses(
     return statuses
 
 
+def generate_open_downtime(
+    cost_per_minute: float | None = None,
+    seconds: int = 134,
+) -> List[Seeded]:
+    """Незакрытое событие простоя, идущее прямо сейчас.
+
+    Настоящий Event Engine при начале простоя пишет DOWNTIME_STARTED и
+    держит событие открытым до конца простоя. Без него демо-
+    таймлайн за сегодня пуст: смена начинается в 07:00, а запустить
+    Dashboard можно и раньше.
+
+    Ущерб у такого события нулевой — он считается только при
+    завершении простоя. Так же ведёт себя и настоящий backend.
+    """
+    now = datetime.now(timezone.utc)
+    started = now - timedelta(seconds=max(0, seconds))
+
+    return [
+        (
+            DowntimeEvent(
+                camera_id=DEMO_CAMERA_ID,
+                event=EventType.DOWNTIME_STARTED,
+                start_time=started.strftime("%H:%M"),
+                end_time="",
+                duration_seconds=0,
+                # Ущерб считается при завершении простоя, поэтому
+                # здесь он нулевой. И rate поэтому не нужен — но
+                # параметр оставлен ради единого интерфейса.
+                estimated_loss=0.0,
+            ),
+            _stamp(started),
+        ),
+    ]
+
+
 def seed(
     repo,
     days_back: int = DAYS_BACK,
@@ -252,7 +315,7 @@ def seed(
 
     repo.ensure_camera(DEMO_CAMERA_ID, DEMO_CAMERA_NAME, source_type="demo", is_demo=True)
 
-    seeded_events = generate_events(days_back=days_back)
+    seeded_events = generate_events(days_back=days_back) + generate_open_downtime()
     seeded_statuses = generate_statuses()
 
     with repo.db.transaction():
@@ -274,6 +337,7 @@ __all__ = [
     "seed",
     "generate_events",
     "generate_statuses",
+    "generate_open_downtime",
     "SEED",
     "DEMO_CAMERA_ID",
     "DEMO_CAMERA_NAME",

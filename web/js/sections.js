@@ -142,7 +142,9 @@
      ============================================================ */
   function renderCameras() {
     const line = state.camLine;
-    const evs = data.events(state.day, line).filter((e) => e.kind === "absent");
+    /* Таймлайн показывает и открытый простой (идущий прямо сейчас):
+       он ещё не завершён, но оператор должен видеть, что линия стоит. */
+    const evs = data.events(state.day, line);
     const cam = data.cameras[0];
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
@@ -269,6 +271,84 @@
     document.querySelectorAll(".dd-btn").forEach((b) => b.setAttribute("aria-expanded", "false"));
   }
 
+  /* ============================================================
+     ТЕКУЩЕЕ СОСТОЯНИЕ (Handoff, раздел 17)
+     ------------------------------------------------------------
+     Четыре поля строго по контракту SystemStatus:
+       LINE     — состояние линии
+       PERSON   — есть ли рабочий
+       DOWNTIME — текущий простой
+       LOSS     — рассчитанный ущерб
+
+     Значения приходят из /api/status готовыми. Ущерб здесь НЕ
+     пересчитывается: по Handoff (раздел 14) право считать его
+     есть только у backend'а.
+     ============================================================ */
+  function renderNowPanel() {
+    const st = data.status();
+    const showLoss = state.settings.show_loss;
+    const cost = data.config() ? data.config().cost_per_minute : state.settings.cost_per_minute;
+
+    /* Данных ещё нет: сервер не отвечает или база пуста.
+       Показываем это прямо, а не рисуем нули как показание. */
+    if (!st || !st.line_status) {
+      return `<div class="card now-panel is-idle">
+        <div class="now-head">${icon("cam")}<h2>Текущее состояние</h2></div>
+        <div class="now-empty">
+          ${icon("alert")}
+          <span>Нет данных с backend'а. Запустите сервер и обновите страницу.</span>
+        </div>
+      </div>`;
+    }
+
+    const lineMap = {
+      WORKING: { label: "WORKING", cls: "is-working", dot: "dot-green" },
+      STOPPED: { label: "STOPPED", cls: "is-stopped", dot: "dot-red" },
+      UNKNOWN: { label: "UNKNOWN", cls: "is-unknown", dot: "dot-gray" },
+    };
+    const line = lineMap[st.line_status] || lineMap.UNKNOWN;
+    const person = st.person_present;
+
+    const cells = [
+      `<div class="now-cell">
+         <div class="now-k">LINE</div>
+         <div class="now-v ${line.cls}"><span class="dot ${line.dot}"></span>${line.label}</div>
+       </div>`,
+      `<div class="now-cell">
+         <div class="now-k">PERSON</div>
+         <div class="now-v ${person ? "is-ok" : "is-bad"}">
+           ${person ? icon("check") : icon("close")} ${person ? "DETECTED" : "NOT DETECTED"}
+         </div>
+       </div>`,
+      `<div class="now-cell">
+         <div class="now-k">DOWNTIME</div>
+         <div class="now-v ${st.downtime_seconds > 0 ? "is-bad" : ""}">${U.fmtHM(st.downtime_seconds)}</div>
+       </div>`,
+      `<div class="now-cell">
+         <div class="now-k">LOSS</div>
+         <div class="now-v ${st.estimated_loss > 0 ? "is-bad" : ""}">
+           ${showLoss ? U.fmtMoney(st.estimated_loss) : "—"}
+         </div>
+       </div>`,
+    ].join("");
+
+    const sync = !data.isLive()
+      ? "Нет связи с сервером — показаны демонстрационные значения"
+      : global.PV.api.ready()
+      ? "Данные с сервера"
+      : "Нет связи с сервером — показаны последние полученные данные";
+
+    return `<div class="card now-panel">
+      <div class="now-head">
+        ${icon("cam")}
+        <h2>Камера №${esc(st.camera_id)}</h2>
+        <span class="now-sync ${data.isLive() ? "is-live" : "is-mock"}">${sync}</span>
+      </div>
+      <div class="now-grid">${cells}</div>
+      <div class="now-foot">Стоимость минуты простоя — ${U.fmtMoney(cost)}</div>
+    </div>`;
+  }
+
   function renderLines() {
     const day = state.day;
     const iso = U.dayISO(day);
@@ -307,17 +387,25 @@
               const style = `top:${top}%;height:${h}%;left:${left}%;width:${w}%;` +
                 (n > 1 ? "--lanes:" + n + ";" : "");
 
-              if (e.kind === "absent") {
-                return `<div class="ev absent${cls}" style="${style}"
+              if (e.kind === "absent" || e.kind === "open") {
+                /* Открытый простой подписан отдельно: он идёт
+                   прямо сейчас, у него нет ни конца, ни ущерба. */
+                const desc = e.open
+                  ? "Простой продолжается"
+                  : "Отсутствовал(а) на рабочем месте";
+                const time = e.open
+                  ? `${e.start} – ${e.end} <span>идёт</span>`
+                  : `${e.start} – ${e.end}<span>${U.fmtHM(e.durationSec)}</span>`;
+                return `<div class="ev absent${e.open ? " is-open" : ""}${cls}" style="${style}"
                              data-line="${l}" data-start="${e.start}" data-end="${e.end}"
                              data-who="${esc(e.employeeFull)}" data-min="${Math.round(e.durationSec / 60)}"
                              title="${esc(e.employeeFull)} · ${e.start}–${e.end} · ${U.fmtHM(e.durationSec)}">
                             <span class="ev-icon">${icon("user")}</span>
                             <span class="ev-info">
                               <span class="ev-name">${esc(e.employee)}</span>
-                              <span class="ev-desc">Отсутствовал(а) на рабочем месте</span>
+                              <span class="ev-desc">${desc}</span>
                             </span>
-                            <span class="ev-time"><b>${e.start} – ${e.end}</b><span>${U.fmtHM(e.durationSec)}</span></span>
+                            <span class="ev-time"><b>${time}</b></span>
                           </div>`;
               }
               return `<div class="ev present${cls}" style="${style}"
@@ -410,6 +498,8 @@
       ${isToday ? '<span class="tag">Сегодня</span>' : '<button class="btn-today" data-day="today">Сегодня</button>'}
     </div>
 
+    ${renderNowPanel()}
+
     <div class="card timeline-wrap">
       <div class="tl-axis">
         ${HOURS.map((h) => `<div>${U.pad(h % 24)}:00</div>`).join("")}
@@ -435,7 +525,7 @@
      ============================================================ */
   function renderOverview() {
     const iso = U.dayISO(state.day);
-    const evs = data.eventsAllLines(iso).filter((e) => e.kind === "absent");
+    const evs = data.finishedForDay(iso);
     const dt = data.downtimeByLine(iso);
     const totalSec = Object.values(dt).reduce((a, b) => a + b, 0);
     const totalLoss = evs.reduce((a, b) => a + b.loss, 0);
@@ -573,6 +663,10 @@
       <span class="tag idle">${absentCount} отсутствуют сейчас</span>
     </div>
 
+    ${data.employeesAreMock
+        ? `<div class="notice">${icon("alert")}<span>Раздел демонстрационный: backend не ведёт сотрудников, а в контракте их нет. Список и суммы здесь — пример, а не данные завода.</span></div>`
+        : ""}
+
     <div class="toolbar">
       <label class="search">${icon("search")}
         <input id="empSearch" type="search" placeholder="Поиск по имени или должности" value="${esc(state.employeesQuery)}">
@@ -615,16 +709,16 @@
     let label = "";
 
     if (per === "day") {
-      evs = data.eventsAllLines(state.day).filter((e) => e.kind === "absent");
+      evs = data.finishedForDay(state.day);
       label = U.fmtDateFull(state.day);
     } else if (per === "week") {
       const start = U.addDays(state.day, -state.day.getDay());
       for (let i = 0; i < 7; i++) {
-        evs = evs.concat(data.eventsAllLines(U.addDays(start, i)).filter((e) => e.kind === "absent"));
+        evs = evs.concat(data.finishedForDay(U.addDays(start, i)));
       }
       label = `${U.fmtDateLong(start)} — ${U.fmtDateLong(U.addDays(start, 6))}`;
     } else {
-      evs = data.monthEvents(y, m).filter((e) => e.kind === "absent");
+      evs = data.finishedForMonth(y, m);
       label = `${U.MONTHS_NOM[m]} ${y}`;
     }
 
@@ -880,12 +974,12 @@
     const y = state.day.getFullYear(), m = state.day.getMonth();
     let evs = [];
     if (state.reportPeriod === "day") {
-      evs = data.eventsAllLines(state.day).filter((e) => e.kind === "absent");
+      evs = data.finishedForDay(state.day);
     } else if (state.reportPeriod === "week") {
       const start = U.addDays(state.day, -state.day.getDay());
-      for (let i = 0; i < 7; i++) evs = evs.concat(data.eventsAllLines(U.addDays(start, i)).filter((e) => e.kind === "absent"));
+      for (let i = 0; i < 7; i++) evs = evs.concat(data.finishedForDay(U.addDays(start, i)));
     } else {
-      evs = data.monthEvents(y, m).filter((e) => e.kind === "absent");
+      evs = data.finishedForMonth(y, m);
     }
     return [["Дата", "Линия", "Сотрудник", "Начало", "Конец", "Длительность, мин", "Ущерб, ₽"]].concat(
       evs.map((e) => [e.day, e.line, e.employeeFull, e.start, e.end,

@@ -22,9 +22,11 @@ from app.database.models import (
     Camera,
     CameraRow,
     Column,
+    EventRecord,
     Table,
     build_statistics,
     row_to_downtime_event,
+    row_to_event_record,
     row_to_system_status,
 )
 from app.database.repository import EventRepository, utcnow_iso
@@ -37,9 +39,11 @@ __all__ = [
     "SCHEMA_STATEMENTS",
     "Camera",
     "CameraRow",
+    "EventRecord",
     "Table",
     "Column",
     "row_to_downtime_event",
+    "row_to_event_record",
     "row_to_system_status",
     "build_statistics",
 ]

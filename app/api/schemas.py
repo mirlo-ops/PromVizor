@@ -80,6 +80,16 @@ class EventResponse(ApiModel):
     end_time: str = Field("", examples=["12:42"])
     duration_seconds: int = Field(0, examples=[120])
     estimated_loss: float = Field(0.0, examples=[1500.0])
+    created_at: str = Field(
+        "",
+        description=(
+            "Метка времени записи события в базе, ISO 8601 UTC. "
+            "В контракте `DowntimeEvent` её нет — там только «ЧЧ:ММ», "
+            "а интерфейсу нужно группировать события по суткам. "
+            "Контракт от этого не меняется."
+        ),
+        examples=["2026-10-09T11:23:00+00:00"],
+    )
 
 
 class EventListResponse(ApiModel):
