@@ -110,3 +110,26 @@ class Statistics:
             total_loss=float(data.get("total_loss", 0.0)),
             events_count=int(data.get("events_count", 0)),
         )
+
+
+# --------------------------------------------------------------------------- #
+# Расчёт ущерба — зона ответственности Lev (backend).
+#
+# По Handoff (разделы 13 и 14):
+#   loss = downtime_minutes × cost_per_minute
+# Dashboard и Telegram ТОЛЬКО отображают готовое значение и не имеют
+# права пересчитывать его самостоятельно.
+# --------------------------------------------------------------------------- #
+def calculate_loss(downtime_seconds: int, cost_per_minute: float) -> float:
+    """Единственная формула расчёта ущерба во всей системе.
+
+    Аргументы:
+        downtime_seconds: длительность простоя в реальных секундах.
+        cost_per_minute: стоимость минуты простоя, ₽.
+
+    Возвращает:
+        Расчётный ущерб, ₽. Дробная часть округляется до копеек,
+        чтобы суммы в БД и на Dashboard совпадали.
+    """
+    minutes = max(0, int(downtime_seconds)) / 60.0
+    return round(minutes * float(cost_per_minute), 2)

@@ -191,6 +191,7 @@
 
     // Тему применяем первой — до любой отрисовки
     sections.applyTheme(sections.state.settings.theme);
+    sections.syncCostPerMinute();
 
     renderTopbar();
     initYearSelect();

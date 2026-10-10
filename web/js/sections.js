@@ -48,8 +48,16 @@
       return def;
     }
   }
+
+  /* Стоимость минуты — серверное значение. Передаём её моку,
+     чтобы интерфейс показывал столько же, сколько вернул бы backend. */
+  function syncCostPerMinute() {
+    data.setCostPerMinute(state.settings.cost_per_minute);
+  }
+
   function saveSettings() {
     try {
+      syncCostPerMinute();
       localStorage.setItem("pv_settings", JSON.stringify(state.settings));
       return true;
     } catch (e) {
@@ -889,6 +897,7 @@
   global.PV.sections = {
     state,
     saveSettings,
+    syncCostPerMinute,
     applyTheme,
     closeDateMenus,
 
@@ -1087,6 +1096,7 @@
         // Тему тоже возвращаем к значению по умолчанию, иначе
         // страница осталась бы в старой теме до перезагрузки
         applyTheme(state.settings.theme);
+        syncCostPerMinute();
         toast("Настройки сброшены к значениям по умолчанию");
         this.render();
       });

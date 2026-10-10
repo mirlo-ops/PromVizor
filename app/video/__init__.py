@@ -2,7 +2,9 @@
 
     from app.video import create_source, DemoSource
 
-    with create_source("demo", scenario="downtime") as src:
+    # Имена сценариев — из DemoScenario: normal / stopped /
+    # person_left / stopped_no_person (НЕ имена файлов!)
+    with create_source("demo", scenario="stopped_no_person") as src:
         frame = src.get_frame()
 """
 

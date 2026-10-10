@@ -128,7 +128,7 @@
         shiftStart,
         status,
         absentMin,
-        lost: status === "absent" ? absentMin * 12.5 : 0,
+        lost: status === "absent" ? backendLoss(absentMin * 60) : 0,
         attendance: clamp(Math.round(88 + rnd() * 12), 0, 100),
         hired: 2018 + Math.floor(rnd() * 7),
         phone: `+7 9${Math.floor(rnd() * 10)} ${100 + Math.floor(rnd() * 800)}-${10 + Math.floor(rnd() * 89)}-${10 + Math.floor(rnd() * 89)}`,
@@ -139,6 +139,28 @@
 
   /* ---------- события ---------- */
   // event.kind: "absent" (простой/отсутствие) | "present" (на месте)
+
+  /* Стоимость минуты простоя, ₽ — значение от backend'а (Lev).
+     Здесь НЕТ формулы расчёта ущерба: фронтенд только имитирует
+     ответ сервера и отображает ГОТОВУЮ цифру.
+     Согласно Handoff (раздел 14), пересчитывать estimated_loss
+     имеет право исключительно Lev. */
+  let COST_PER_MINUTE = 750;
+
+  /* Принимает стоимость минуты из настроек, чтобы цифры на Dashboard
+     и в отчётах соответствовали тому, что вернул бы сервер. */
+  function setCostPerMinute(value) {
+    const v = Number(value);
+    if (Number.isFinite(v) && v > 0) COST_PER_MINUTE = v;
+  }
+
+  /* Ущерб «приходит с backend» — зеркало calculate_loss()
+     из app/core/types.py: минуты × стоимость минуты, до копеек. */
+  function backendLoss(downtimeSeconds) {
+    const minutes = Math.max(0, downtimeSeconds) / 60;
+    return Math.round(minutes * COST_PER_MINUTE * 100) / 100;
+  }
+
   function makeEvents(dayISO, line) {
     const rnd = mulberry(hashStr(dayISO + ":line" + line));
     const out = [];
@@ -154,6 +176,7 @@
       if (end > 22 * 60) break;
 
       const emp = staff[Math.floor(rnd() * staff.length)];
+      const durationSec = dur * 60;
       out.push({
         id: `${dayISO}-L${line}-${i}`,
         day: dayISO,
@@ -167,8 +190,8 @@
         endMin: end,
         start: toHM(start),
         end: toHM(end),
-        durationSec: dur * 60,
-        loss: Math.round(dur * 12.5 * 100) / 100,
+        durationSec,
+        loss: backendLoss(durationSec),
       });
       cursor = end + 30 + Math.floor(rnd() * 150);
     }
@@ -218,6 +241,10 @@
   const API = {
     LineStatus: { WORKING: "WORKING", STOPPED: "STOPPED", UNKNOWN: "UNKNOWN" },
     EventType: { DOWNTIME_STARTED: "DOWNTIME_STARTED", DOWNTIME_FINISHED: "DOWNTIME_FINISHED" },
+
+    /* Стоимость минуты задаётся из настроек интерфейса,
+       чтобы мок повторял ответ backend'а, а не считал сам. */
+    setCostPerMinute,
 
     employees: makeEmployees(),
     lines: [1, 2, 3],

@@ -593,14 +593,24 @@ GET /api/events/{id}
 
 Dashboard теперь полностью делает Lev.
 
-Структура:
+Структура (уточнено 10.10.2026 — фактическое имя каталога `web/`,
+разбивка на модули вместо одного файла):
 
 ```text
-frontend/
+web/
 ├── index.html
-├── style.css
-└── app.js
+├── css/
+│   └── styles.css          # темы, карточки, таймлайн, адаптив
+└── js/
+    ├── data.js             # мок-слой по контракту app/core/types.py
+    ├── components.js       # иконки, тосты, делегирование событий
+    ├── sections.js         # все разделы интерфейса
+    └── app.js              # маршрутизация, часы, выбор даты, год
 ```
+
+Модульное разделение выбрано вместо монолитного `app.js`, потому что
+разделов шесть и каждый sizeable; при объединении в один файл любая
+правка затрагивала бы весь интерфейс.
 
 Dashboard должен показывать:
 
@@ -775,10 +785,15 @@ promvizor/
 │   └── telegram/              # GASUN
 │       └── bot.py
 │
-├── frontend/                  # LEV
+├── web/                       # LEV — Dashboard (было frontend/)
 │   ├── index.html
-│   ├── style.css
-│   └── app.js
+│   ├── css/
+│   │   └── styles.css
+│   └── js/
+│       ├── data.js
+│       ├── components.js
+│       ├── sections.js
+│       └── app.js
 │
 ├── demo/                      # COMMON
 │   ├── videos/
@@ -793,15 +808,121 @@ promvizor/
 ├── docker-compose.yml
 └── README.md
 ```
+
+---
+
+# 22. Фактическое состояние (обновлено 10.10.2026)
+
+Проверено по содержимому репозитория, а не по плану.
+
+## ✅ Выполнено полностью
+
+### Этап 1 — Video
+
+* [x] `VideoSource` — `open()` / `get_frame()` / `close()`, контекстный менеджер
+* [x] DEMO source — 4 сценария, зацикливание ролика, `progress` для демо-таймера
+* [x] WEBCAM source
+* [x] RTSP source — URL из `.env`, креды не попадают в логи
+* [x] единый `get_frame()`
+* [x] фабрика `create_source("demo"|"webcam"|"rtsp")`
+* [x] свойства `fps` / `width` / `height` / `duration_seconds` / `position_seconds`
+
+### `app/core`
+
+* [x] `config.py` — настройки, 4 DEMO-сценария
+* [x] `types.py` — `SystemStatus`, `DowntimeEvent`, `Statistics`
+* [x] `calculate_loss()` — ЕДИНСТВЕННАЯ формула ущерба (раздел 13)
+* [x] `CONTRACT.md` — правила разграничения ответственности
+
+### Dashboard (`web/`)
+
+* [x] все 6 разделов работают: Мониторинг (Линии / Камеры / Сводная),
+      Сотрудники, Отчёты, Настройки
+* [x] светлая и тёмная темы, переключение в настройках, сохранение
+* [x] контраст текста соответствует WCAG AA в обеих темах
+* [x] выбор даты в шапке «Линий», год в топбаре
+* [x] раскладка пересекающихся событий по дорожкам — карточки не накладываются
+
+## ⚠️ Выполнено частично
+
+### Этап 7 — Dashboard
+
+Интерфейс богатый, но требованиям раздела 17 **не подведён**:
+
+* [ ] нет блока текущего состояния в формате
+      `LINE / PERSON / DOWNTIME / LOSS` (раздел 17)
+* [ ] нет таблицы «История» в формате раздела 17
+      (частично есть «Последние события» на «Сводной»)
+* [x] история событий — есть, в своём формате
+
+### Данные
+
+* [x] мок-слой в браузере по контракту `app/core/types.py`
+* [ ] **нет подключения к API** — ни `fetch`, ни `WebSocket`
+* [ ] ущерб приходит из мока, а не от backend'а (замена на API — задача Этапа 6)
+
+### `requirements.txt`
+
+* [x] `opencv-python`, `numpy`
+* [ ] не заявлены: `ultralytics` (YOLO), `fastapi`, `uvicorn`,
+      БД, `python-dotenv`, `pytest`
+
+## ❌ Не начато
+
+| Этап | Состояние |
+|---|---|
+| 2 — Computer Vision | нет `app/vision/` |
+| 3 — Event Engine | нет `app/engine/` |
+| 4 — Экономика | нет `app/engine/downtime.py` и `loss.py` |
+| 5 — Database | нет `app/database/` |
+| 6 — API | нет `app/api/` |
+| 8 — Telegram | нет `app/telegram/` (зона GASUN) |
+| 9 — Demo-видео | `demo/videos/` пуст, роликов нет |
+| 10 — Сквозная демонстрация | невозможна без этапов 2–6 |
+
+Также отсутствуют: `tests/`, `Dockerfile`, `docker-compose.yml`,
+`demo/scenarios/`.
+
+## Известные ограничения
+
+* **OpenCV установлен в `.venv/`** (`opencv-python-headless`, numpy).
+  Запуск Python-кода — через `.venv/bin/python`. Системный `python3`
+  без OpenCV использовать нельзя.
+* **DEMO-сценарии из Handoff (раздел 6.1–6.4) не реализованы как логика.**
+  Сейчас это только 4 файла-ролика; логики определения простоя нет
+  (она и есть Этапы 2–3)
+* **Видео-подсистема проверена на синтетическом ролике:** 50 кадров
+  прочитано, `fps` / `width` / `height` / `duration_seconds` верны
+
+## Решение по расчёту ущерба (10.10.2026)
+
+Handoff (раздел 14) запрещает интерфейсу пересчитывать `estimated_loss`.
+Раньше фронтенд считал ущерб сам (`× 12.5` в двух местах, игнорируя
+настройку `cost_per_minute`) — это было нарушением контракта.
+
+Сейчас:
+
+* формула вынесена в `app/core/types.py` → `calculate_loss()`
+* в `web/js/data.js` ущерб приходит как **готовое значение**
+  (`backendLoss()` — имитация ответа сервера)
+* стоимость минуты задаётся из настроек через
+  `data.setCostPerMinute()` — фронтенд получает цифру, а не считает её
+* проверено: суммы на Dashboard совпадают с расчётом по формуле Lev
+
+**При подключении реального API функция `backendLoss()` заменяется на
+значение из ответа `/api/status` и `/api/events`.**
+
+---
+
 # 23. Текущий приоритет Lev
 
 ## Этап 1 — Video
 
-* [ ] `VideoSource`
-* [ ] DEMO source
-* [ ] WEBCAM source
-* [ ] RTSP source
-* [ ] единый `get_frame()`
+* [x] `VideoSource`
+* [x] DEMO source
+* [x] WEBCAM source
+* [x] RTSP source
+* [x] единый `get_frame()`
 
 ## Этап 2 — Computer Vision
 
@@ -823,8 +944,9 @@ promvizor/
 ## Этап 4 — Экономика
 
 * [ ] downtime timer
-* [ ] cost per minute
-* [ ] loss calculation
+* [x] cost per minute — в `config.py` и в настройках Dashboard
+* [x] loss calculation — формула `calculate_loss()` в `app/core/types.py`
+* [ ] расчёт на реальных событиях (зависит от Этапа 3)
 
 ## Этап 5 — Database
 
@@ -839,18 +961,19 @@ promvizor/
 * [ ] FastAPI
 * [ ] `/status`
 * [ ] `/events`
-* [ ] event schema
+* [x] event schema — `SystemStatus` / `DowntimeEvent` / `Statistics`
+      в `app/core/types.py` (контракт готов, endpoints нет)
 * [ ] интеграция с Dashboard
 * [ ] API для Telegram
 
 ## Этап 7 — Dashboard
 
-* [ ] текущий статус
-* [ ] статус линии
-* [ ] статус рабочего
-* [ ] downtime
-* [ ] loss
-* [ ] история
+* [ ] текущий статус — в формате раздела 17 (`LINE / PERSON / DOWNTIME / LOSS`)
+* [ ] статус линии — в формате раздела 17
+* [ ] статус рабочего — в формате раздела 17
+* [x] downtime — отображается в «Сводной» и «Линиях»
+* [x] loss — отображается, берётся готовым от backend'а
+* [x] история — есть («Сводная», «Отчёты»)
 
 ## Этап 8 — Telegram Integration
 
