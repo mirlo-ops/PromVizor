@@ -80,6 +80,17 @@ class EventResponse(ApiModel):
     end_time: str = Field("", examples=["12:42"])
     duration_seconds: int = Field(0, examples=[120])
     estimated_loss: float = Field(0.0, examples=[1500.0])
+    id: int = Field(
+        0,
+        description=(
+            "Идентификатор строки в базе, строго возрастает. Бот "
+            "запоминает последний прочитанный id и берёт только "
+            "следующие — так событие не присылается дважды. "
+            "В контракте `DowntimeEvent` этого поля нет: контракт "
+            "от его добавления не меняется."
+        ),
+        examples=[181],
+    )
     created_at: str = Field(
         "",
         description=(

@@ -182,29 +182,34 @@ def row_to_downtime_event(row: Any) -> DowntimeEvent:
 
 @dataclass
 class EventRecord:
-    """Событие простоя вместе с меткой времени его записи.
+    """Событие простоя вместе со служебными полями записи.
 
     Контрактный `DowntimeEvent` содержит только «ЧЧ:ММ» — времени в
     нём суток нет. Интерфейсу, однако, нужно группировать события по
-    дням (отчёт за месяц, таймлайн за сутки), и по одним часам минуты
-    это сделать нельзя. Поэтому API отдаёт событие вместе с датой
-    записи, не меняя сам контракт.
+    дням (отчёт за месяц, таймлайн за сутки), а боту — читать новые
+    события без повторов. Поэтому API отдаёт событие вместе с датой
+    записи и идентификатором, не меняя сам контракт.
     """
 
     event: DowntimeEvent
     created_at: str = ""
+    #: Идентификатор строки в базе. Строго возрастает — по нему бот
+    #: запоминает, где остановился, и не присылает одно событие дважды.
+    id: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         data = self.event.to_dict()
         data["created_at"] = self.created_at
+        data["id"] = self.id
         return data
 
 
 def row_to_event_record(row: Any) -> EventRecord:
-    """Строка `downtime_events` → `EventRecord` с датой записи."""
+    """Строка `downtime_events` → `EventRecord` с датой и id."""
     return EventRecord(
         event=row_to_downtime_event(row),
         created_at=str(row[Column.CREATED_AT] or ""),
+        id=int(row[Column.ID] or 0) if Column.ID in row.keys() else 0,
     )
 
 

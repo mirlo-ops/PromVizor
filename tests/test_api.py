@@ -247,13 +247,19 @@ def test_events_limit_is_bounded():
 
 
 def test_event_by_id():
+    """Запрос по id должен вернуть именно это событие."""
     with fixture() as f:
         events = f.client.get("/api/events").json()["items"]
-        target = events[0]
+        # items приходят свежими сверху, поэтому ищем по id, а не берём
+        # первый элемент: иначе сравнивались бы разные события
+        target = next(e for e in events if e["id"] == 1)
 
-        response = f.client.get(f"/api/events/{1}")
+        response = f.client.get(f"/api/events/{target['id']}")
         assert response.status_code == 200
-        assert response.json()["camera_id"] == target["camera_id"]
+        body = response.json()
+        assert body["camera_id"] == target["camera_id"]
+        assert body["event"] == target["event"]
+        assert body["start_time"] == target["start_time"]
 
 
 def test_event_missing_gives_404():
@@ -325,6 +331,28 @@ def test_events_filters_by_recorded_date():
             params={"since": "2026-10-01", "until": "2026-10-01"},
         ).json()
         assert all(item["created_at"].startswith("2026-10-01") for item in body["items"])
+
+
+def test_event_has_incrementing_id():
+    """У события должен быть строго возрастающий id.
+
+    По нему бот ведёт курсор и читает новые события без повторов.
+    Без id пришлось бы сравнивать время, а оно не различает два
+    события, записанные в одну секунду.
+    """
+    with fixture() as f:
+        events = f.client.get("/api/events").json()["items"]
+        ids = [item["id"] for item in events]
+        assert all(isinstance(i, int) and i > 0 for i in ids), f"id некорректны: {ids}"
+        # items отдаются новыми сверху — id должны убывать
+        assert ids == sorted(ids, reverse=True), f"порядок не совпал: {ids}"
+
+
+def test_event_by_id_returns_same_id():
+    with fixture() as f:
+        listed = f.client.get("/api/events").json()["items"][0]
+        single = f.client.get(f"/api/events/{listed['id']}").json()
+        assert single["id"] == listed["id"]
 
 
 def test_demo_seed_creates_data():

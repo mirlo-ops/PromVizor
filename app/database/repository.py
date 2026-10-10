@@ -337,12 +337,20 @@ class EventRepository:
         camera_id: Optional[int] = None,
         event_type: Optional[str] = None,
         limit: int = 1000,
+        newest_first: bool = True,
     ) -> List[EventRecord]:
-        """События за период вместе с меткой времени записи.
+        """События за период вместе с меткой времени записи и id.
 
         Нужно интерфейсу: в контракте только «ЧЧ:ММ», а сгруппировать
         события по суткам (отчёт за месяц, таймлайн за день) по часам
-        и минутам невозможно.
+        и минутам невозможно. Нужен и боту: по `id` он читает новые
+        события без повторов.
+
+        По умолчанию — свежие сверху: `?limit=50` означает «50 самых
+        свежих», и этого ждут читатели ленты. Порядок сделан явным
+        параметром, потому что раньше он был противоположным
+        заявленному в документации — и код, полагавшийся на текст,
+        обрабатывал события задом наперёд.
         """
         where: List[str] = []
         params: List[object] = []
@@ -364,7 +372,8 @@ class EventRepository:
         sql = f"SELECT * FROM {Table.DOWNTIME_EVENTS}"
         if where:
             sql += " WHERE " + " AND ".join(where)
-        sql += f" ORDER BY {Column.ID} ASC LIMIT ?"
+        order = "DESC" if newest_first else "ASC"
+        sql += f" ORDER BY {Column.ID} {order} LIMIT ?"
 
         return [row_to_event_record(r) for r in self.db.query_all(sql, tuple(params))]
 
