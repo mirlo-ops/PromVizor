@@ -899,6 +899,15 @@ promvizor/
 
 Проверено по содержимому репозитория, а не по плану.
 
+## Итог одной строкой
+
+Закрыты этапы 1–7 и 10 (конвейер видео, режим камеры, трек
+человека). Не начат только Telegram — это зона Gasun. DEMO-роликов
+(этап 9) нет, вместо них работает синтетическая сцена.
+
+Тестов: **169** (vision 17, engine 19, economics 21, database 27,
+api 35, web 27, pipeline 23).
+
 ## ✅ Выполнено полностью
 
 ### Этап 1 — Video
@@ -1077,14 +1086,15 @@ Handoff (раздел 14) запрещает интерфейсу пересчи
 Сейчас:
 
 * формула вынесена в `app/core/types.py` → `calculate_loss()`
-* в `web/js/data.js` ущерб приходит как **готовое значение**
-  (`backendLoss()` — имитация ответа сервера)
-* стоимость минуты задаётся из настроек через
-  `data.setCostPerMinute()` — фронтенд получает цифру, а не считает её
-* проверено: суммы на Dashboard совпадают с расчётом по формуле Lev
-
-**При подключении реального API функция `backendLoss()` заменяется на
-значение из ответа `/api/status` и `/api/events`.**
+* интерфейс **больше не считает ущерб**: он берёт готовый
+  `estimated_loss` из ответа API (`/api/status`, `/api/events`)
+* стоимость минуты приходит из `/api/config` и подставляется в
+  настройки интерфейса — как подпись, а не как множитель
+* проверено тестом `tests/test_web_data.js`: при смене стоимости
+  минуты суммы на экране не меняются
+* `backendLoss()` осталась только в mock-слое для демо-режима, когда
+  сервер недоступен. Помечена в коде как повторяющая
+  `calculate_loss()` и в рабочем режиме не используется
 
 ---
 
@@ -1296,13 +1306,15 @@ status_log       — снимки SystemStatus (линия, рабочий, пр
 
 ## Этап 6 — API
 
-* [ ] FastAPI
-* [ ] `/status`
-* [ ] `/events`
+* [x] FastAPI
+* [x] `/api/status` — текущее состояние
+* [x] `/api/events` — история событий
 * [x] event schema — `SystemStatus` / `DowntimeEvent` / `Statistics`
-      в `app/core/types.py` (контракт готов, endpoints нет)
-* [ ] интеграция с Dashboard
-* [ ] API для Telegram
+      в `app/core/types.py`
+* [x] интеграция с Dashboard — Dashboard читает API (Этап 7)
+* [x] API для Telegram — события отдаются через `/api/events`,
+      ждут, пока Gasun подключит бота
+* [x] API для видео — MJPEG-поток и выбор режима камеры
 
 ## Этап 7 — Dashboard
 
@@ -1415,9 +1427,54 @@ curl -X POST "localhost:8000/api/demo/seed?days_back=7&replace=true"
 
 *(раздел не менялся; отправка в ТГ — зона Gasun)*
 
+* [ ] передать Gasun API-контракт
+* [ ] проверить получение `/status`
+* [ ] проверить `/events`
+* [ ] проверить уведомление о DOWNTIME
+* [ ] проверить завершение простоя
+
+## Этап 9 — Demo
+
+* [ ] Normal video
+* [ ] Stop video
+* [ ] Person Out video
+* [ ] Downtime video
+* [x] DEMO MODE label — на кадрах синтетики стоит пометка «СИНТЕТИКА»
+* [ ] ускоренное время
+
+## Этап 10 — Финальная демонстрация
+
+Полная цепочка:
+
+```text
+DEMO VIDEO
+    ↓
+OpenCV
+    ↓
+YOLO
+    ↓
+PERSON + MOTION
+    ↓
+ROI
+    ↓
+EVENT ENGINE
+    ↓
+DOWNTIME
+    ↓
+LOSS
+    ↓
+SQLite
+    ↓
+FastAPI
+    ↓
+Dashboard
+    ↓
+Telegram
+```
+
 ---
 
-# Этап 10 — Конвейер видео, режим камеры и трек человека
+# Конвейер видео, режим камеры и трек человека (10.10.2026)
 
 Реализовано по требованию, заданному пользователем 10.10.2026:
 **режим камеры переключается в настройках**, а в окне камер видно
@@ -1518,51 +1575,6 @@ app/core/camera_mode.py   режим камеры: чтение и сохран�
 
 ```bash
 .venv/bin/python tests/test_pipeline.py
-```
-
-* [ ] передать Gasun API-контракт
-* [ ] проверить получение `/status`
-* [ ] проверить `/events`
-* [ ] проверить уведомление о DOWNTIME
-* [ ] проверить завершение простоя
-
-## Этап 9 — Demo
-
-* [ ] Normal video
-* [ ] Stop video
-* [ ] Person Out video
-* [ ] Downtime video
-* [ ] DEMO MODE label
-* [ ] ускоренное время
-
-## Этап 10 — Финальная демонстрация
-
-Полная цепочка:
-
-```text
-DEMO VIDEO
-    ↓
-OpenCV
-    ↓
-YOLO
-    ↓
-PERSON + MOTION
-    ↓
-ROI
-    ↓
-EVENT ENGINE
-    ↓
-DOWNTIME
-    ↓
-LOSS
-    ↓
-SQLite
-    ↓
-FastAPI
-    ↓
-Dashboard
-    ↓
-Telegram
 ```
 
 ---
