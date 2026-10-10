@@ -294,7 +294,20 @@ class MotionDetector:
         return float(cv2.countNonZero(mask)) / size
 
     def _average_motion(self) -> float:
-        """Средняя доля изменившихся пикселей за окно."""
+        """Средняя доля изменившихся пикселей.
+
+        Усредняются ТОЛЬКО последние min_samples кадров — ровно столько,
+        сколько нужно для подтверждения состояния. Усреднение по всему
+        окну истории давало лаг в десятки кадров: линия давно встала,
+        а в среднем ещё участвовали кадры из движения.
+        """
+        if not self._diffs:
+            return 0.0
+        recent = list(self._diffs)[-self.min_samples:]
+        return sum(recent) / len(recent)
+
+    def motion_history_average(self) -> float:
+        """Среднее по всей истории — для отчётов и отладки."""
         if not self._diffs:
             return 0.0
         return sum(self._diffs) / len(self._diffs)

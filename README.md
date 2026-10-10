@@ -18,15 +18,15 @@
 | Этап | Статус |
 |---|---|
 | 1. Video (DEMO / WEBCAM / RTSP) | ✅ готов |
-| 2. Computer Vision (YOLO, ROI, motion) | ❌ не начат |
-| 3. Event Engine | ❌ не начат |
-| 4. Экономика (downtime, loss) | ⚠️ частично — есть только формула |
+| 2. Computer Vision (YOLO, ROI, motion) | ✅ готов |
+| 3. Event Engine | ✅ готов |
+| 4. Экономика (downtime, loss) | ⚠️ таймер и формула готовы, нет БД |
 | 5. Database (SQLite) | ❌ не начат |
 | 6. API (FastAPI) | ❌ не начат |
-| 7. Dashboard | ⚠️ частично — интерфейс готов, данных нет |
+| 7. Dashboard | ⚠️ интерфейс готов, данных нет |
 | 8. Telegram | ❌ не начат (зона Gasun) |
 | 9. Demo-видео | ❌ роликов нет |
-| 10. Сквозная демонстрация | ❌ невозможна |
+| 10. Сквозная демонстрация | ❌ невозможна без этапов 5–6 |
 
 Подробный разбор — раздел 22 файла Handoff.
 
@@ -96,12 +96,15 @@ with create_source("demo", scenario="stopped_no_person") as src:
 promvizor/
 ├── app/
 │   ├── core/          # контракт, типы, настройки, формула ущерба
-│   └── video/         # VideoSource, DEMO / WEBCAM / RTSP, фабрика
+│   ├── video/         # VideoSource, DEMO / WEBCAM / RTSP, фабрика
+│   ├── vision/        # ROI, детектор человека (YOLO), детектор движения
+│   └── engine/        # Event Engine: простой, события, ущерб
 │
 ├── web/               # Dashboard (HTML + CSS + JS, без сборки)
 │   ├── css/styles.css
 │   └── js/            # data, components, sections, app
 │
+├── tests/             # тесты vision и engine
 ├── demo/videos/       # DEMO-ролики сценариев (COMMON)
 │
 ├── requirements.txt
@@ -128,6 +131,45 @@ promvizor/
 
 DEMO-видео — демонстрационный поток, имитирующий производственную
 камеру. Выдавать его за реальную запись предприятия нельзя.
+
+---
+
+## Ядро: видео → vision → простой
+
+```python
+from app.video import create_source
+from app.vision import VisionPipeline
+from app.engine import EventEngine
+
+vision = VisionPipeline()
+engine = EventEngine(camera_id=1, threshold_seconds=30)
+
+with create_source("demo", scenario="stopped_no_person") as src:
+    while (frame := src.get_frame()) is not None:
+        result = vision.process(frame)
+
+        for event in engine.update(result):
+            print(event.describe())
+
+        print(engine.status(result).to_dict())
+```
+
+`engine.status()` возвращает `SystemStatus` — ровно тот объект,
+который по контракту уходит в Dashboard и Telegram.
+
+Простой фиксируется, когда **линия стоит И рабочего нет дольше
+порога**. Рабочий ушёл, а линия работает — простоя нет. Линия стоит,
+но рабочий на месте — вероятно обслуживание, простоя нет.
+
+## Тесты
+
+```bash
+.venv/bin/python tests/test_vision.py    # 17 тестов
+.venv/bin/python tests/test_engine.py    # 19 тестов
+```
+
+Тесты не требуют видео и работают без YOLO: движок принимает
+результаты Vision напрямую, а детектор человека — подставной backend.
 
 ---
 
