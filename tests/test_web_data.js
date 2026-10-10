@@ -333,7 +333,15 @@ console.log("\nweb/js — слой данных Dashboard\n");
     return box.window.PV.data.load(iso).then(() => {
       const event = box.window.PV.data.events(iso, 1)[0];
       assert(event, "событие за сегодня не найдено");
-      assertEqual(event.durationSec, 300, "длительность идущего простоя, сек");
+      /* Проверяем с допуском: между расчётом метки в тесте и вызовом
+         конвейера проходит время загрузки модулей, и при нагрузке
+         округление давало 301 вместо 300. Суть проверки — что берётся
+         реальное прошедшее время, а не местные часы. */
+      const seconds = event.durationSec;
+      assert(
+        seconds >= 299 && seconds <= 305,
+        `длительность идущего простоя вне допуска: ${seconds} с (ждали ~300)`
+      );
       assertEqual(event.loss, 0, "ущерб открытого простоя");
     });
   });

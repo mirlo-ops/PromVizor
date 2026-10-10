@@ -108,6 +108,8 @@ promvizor/
 │   ├── css/styles.css
 │   └── js/            # api, data, components, sections, app
 │
+├── assets/            # исходники иконок (.ai, Adobe Illustrator)
+│
 ├── tests/             # тесты vision, engine, economics, database, api, web, pipeline
 ├── demo/videos/       # DEMO-ролики сценариев (COMMON)
 │
@@ -172,7 +174,7 @@ with create_source("demo", scenario="stopped_no_person") as src:
 .venv/bin/python tests/test_engine.py      # 19 тестов
 .venv/bin/python tests/test_economics.py   # 21 тест
 .venv/bin/python tests/test_database.py    # 27 тестов
-.venv/bin/python tests/test_api.py         # 35 тестов
+.venv/bin/python tests/test_api.py         # 37 тестов
 node tests/test_web_data.js                # 27 тестов
 .venv/bin/python tests/test_pipeline.py    # 23 теста
 ```

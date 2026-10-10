@@ -869,15 +869,21 @@ promvizor/
 │   └── telegram/              # GASUN
 │       └── bot.py
 │
-├── web/                       # LEV — Dashboard (было frontend/)
+├── web/                       # LEV — рабочий Dashboard (было frontend/)
 │   ├── index.html
 │   ├── css/
 │   │   └── styles.css
 │   └── js/
-│       ├── data.js
+│       ├── api.js             # клиент API
+│       ├── data.js            # слой данных
 │       ├── components.js
 │       ├── sections.js
 │       └── app.js
+│
+├── assets/                    # исходники иконок, .ai (дизайн)
+│   └── календарь.ai, камера.ai, мониторинг.ai, настройки.ai,
+│       отчеты.ai, простои.ai, сводная.ai, сотрудники.ai,
+│       сотрудника слева.ai
 │
 ├── demo/                      # COMMON
 │   ├── videos/
@@ -905,8 +911,8 @@ promvizor/
 человека). Не начат только Telegram — это зона Gasun. DEMO-роликов
 (этап 9) нет, вместо них работает синтетическая сцена.
 
-Тестов: **169** (vision 17, engine 19, economics 21, database 27,
-api 35, web 27, pipeline 23).
+Тестов: **171** (vision 17, engine 19, economics 21, database 27,
+api 37, web 27, pipeline 23).
 
 ## ✅ Выполнено полностью
 
