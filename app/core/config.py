@@ -79,13 +79,32 @@ class Settings:
     # --- ROI (контролируемая зона камеры, Этап 2) ---
     # Координаты нормализованы: 0.0–1.0 от размера кадра, поэтому ROI
     # работает при любом разрешении камеры.
-    roi_left: float = 0.20
-    roi_top: float = 0.35
-    roi_right: float = 0.80
-    roi_bottom: float = 0.90
+    #
+    # Зона расширена вверх и в стороны после проверки на демо-роликах:
+    # рабочие стоят в ВЕРХНЕЙ половине кадра (y≈0.19–0.62), а старая
+    # зона начиналась с y=0.35 и проходила под ними — человека в кадре
+    # видели, но «в зоне» он не был, и присутствие не определялось.
+    roi_left: float = 0.15
+    roi_top: float = 0.12
+    roi_right: float = 0.90
+    roi_bottom: float = 0.80
 
     # --- Person Detection (YOLO, Этап 2) ---
-    yolo_model: str = "yolov8n.pt"   # лёгкая модель для Alpha
+    # Модель и размер входа задаются здесь, потому что это главный
+    # компромисс системы: точность против скорости. Замеры на
+    # демо-роликах (доля кадров, где найден рабочий; 2 ядра, без GPU):
+    #
+    #   модель      imgsz   ролик «человек в кадре»   мс/кадр
+    #   yolov8n        640               23 %          1720
+    #   yolo26n        640               31 %          1461
+    #   yolo26n        960               62 %          2138
+    #   yolo26s        960               92 %          5106
+    #
+    # yolo26n быстрее v8n и находит заметно больше. Размер входа
+    # влияет сильнее модели: на далёком плане цеха рабочий занимает
+    # ~40 пикселей, и 640 для него почти ничего не значит.
+    yolo_model: str = "yolo26n.pt"
+    yolo_imgsz: int = 960
     yolo_confidence: float = 0.35     # порог уверенности
     # Классы COCO, которые считаем рабочими. 0 = person.
     yolo_person_classes: tuple = (0,)
@@ -106,7 +125,7 @@ class Settings:
     # как «линия поехала» — ложное срабатывание.
     motion_lighting_threshold: float = 0.08
 
-    # --- Telegram (Gasun читает через .env, но ключи согласованы) ---
+    # --- Telegram (наша зона ответственности) ---
     telegram_bot_token: str = ""  # TELEGRAM_BOT_TOKEN
     telegram_chat_id: str = ""  # TELEGRAM_CHAT_ID
 
@@ -115,9 +134,6 @@ def _from_env() -> "Settings":
     """Собирает настройки с учётом переменных окружения и .env.
 
     Приоритет: переменная окружения > .env > значение по умолчанию.
-    Здесь не задаются только те поля, которые не должны приходить
-    извне (например, координаты ROI — это часть конфигурации
-    конкретной камеры, а не окружения).
     """
     return Settings(
         # --- Экономика ---
@@ -127,6 +143,19 @@ def _from_env() -> "Settings":
         downtime_threshold_webcam_seconds=env_int("DOWNTIME_THRESHOLD_WEBCAM_SECONDS", 5),
         # --- Камеры ---
         camera_id=env_int("CAMERA_ID", 1),
+        # --- ROI ---
+        # Координаты зоны вынесены в .env: это часть конфигурации
+        # КАМЕРЫ, и под каждую установку она своя. Раньше зона была
+        # зашита в код, и под другой план цеха её нельзя было ни
+        # посмотреть, ни поправить без правки исходников.
+        roi_left=env_float("ROI_LEFT", 0.15),
+        roi_top=env_float("ROI_TOP", 0.12),
+        roi_right=env_float("ROI_RIGHT", 0.90),
+        roi_bottom=env_float("ROI_BOTTOM", 0.80),
+        # --- Детекция ---
+        yolo_model=env_str("YOLO_MODEL", "yolo26n.pt"),
+        yolo_imgsz=env_int("YOLO_IMGSZ", 960),
+        yolo_confidence=env_float("YOLO_CONFIDENCE", 0.35),
         # --- Источники ---
         default_source=env_str("DEFAULT_SOURCE", "demo"),
         webcam_index=env_int("WEBCAM_INDEX", 0),

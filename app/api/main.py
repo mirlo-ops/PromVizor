@@ -29,6 +29,7 @@ Dashboard раздаётся тем же сервером, а не открыв�
 
 from __future__ import annotations
 
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,7 @@ from typing import AsyncIterator, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import close_database, get_database, router
@@ -157,8 +159,85 @@ def main() -> None:
 # html=True отдаёт web/index.html по адресу "/". Если папки нет
 # (например, при установке только backend'а), монтирование
 # пропускается: API продолжит работать, просто Dashboard не откроется.
+#
+# Кэширование статики. Без заголовков браузер берёт js/css из своего
+# кэша и после правки продолжает выполнять СТАРЫЙ код: интерфейс
+# выглядит исправленным в коде, но в браузере старая версия, и
+# поломка «не чинится». Именно так выглядело «опять сломалось».
+# no-cache заставляет браузер каждый раз уточнять у сервера,
+# а версия в адресе файла (см. dashboard_index) делает адрес новым.
+class DashboardFiles(StaticFiles):
+    """StaticFiles, который не даёт браузеру держать старую вёрстку.
+
+    Установленной версии Starlette не хватает параметра headers, поэтому
+    заголовок проставляется подменой file_response — так работает любой
+    ответ этого класса.
+    """
+
+    def file_response(self, full_path, stat_result=None, scope=None):  # noqa: ANN001
+        response = super().file_response(full_path, stat_result=stat_result, scope=scope)
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
+#: Подключаемые файлы Dashboard: css/*.css и js/*.js из index.html
+_ASSET_RE = re.compile(r'((?:src|href)=")((?!data:|https?:|//)[^"]+\.(?:css|js))(")')
+
+#: Последняя отданная разметка и её версия — чтобы не пересобирать
+#: index.html на каждый запрос.
+_index_cache: tuple[Optional[str], str] = (None, "")
+
+
+def _assets_version() -> str:
+    """Версия статики: растёт при любой правке файлов в web/.
+
+    Один этот параметр решает проблему «правка не применяется»: адрес
+    файла меняется, и браузер физически не может отдать старый код из
+    кэша. Считается по времени изменения — вручную проставлять версии
+    в index.html забывают, и именно из-за этого интерфейс молча
+    оставался прежним.
+    """
+    newest = 0.0
+    try:
+        for path in WEB_DIR.rglob("*"):
+            if path.is_file():
+                newest = max(newest, path.stat().st_mtime)
+    except OSError:
+        pass
+    return str(int(newest))
+
+
+@app.get("/", include_in_schema=False)
+def dashboard_index() -> HTMLResponse:
+    """Отдаёт index.html с версией в адресах файлов.
+
+    Регистрируется ДО монтирования StaticFiles, иначе тот перехватил
+    бы "/" (он отвечает на всё, что не поймано раньше) и вернул бы
+    разметку без версии — то есть ровно то, что нужно починить.
+    """
+    global _index_cache
+
+    version = _assets_version()
+    cached_version, cached_html = _index_cache
+    if cached_version != version:
+        path = WEB_DIR / "index.html"
+        try:
+            html = path.read_text(encoding="utf-8")
+        except OSError:
+            html = "<h1>Dashboard не найден</h1>"
+        html = _ASSET_RE.sub(rf"\g<1>\g<2>?v={version}\g<3>", html)
+        _index_cache = (version, html)
+    # Разметку кэшировать нельзя: версия в адресах файлов бессмысленна,
+    # если браузер покажет старую страницу со ссылками без неё. Именно
+    # это и происходило — страница приходила из кэша, и правки JS
+    # не доезжали до браузера совсем.
+    return HTMLResponse(
+        _index_cache[1], headers={"Cache-Control": "no-store, must-revalidate"}
+    )
+
+
 if WEB_DIR.is_dir():
-    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="dashboard")
+    app.mount("/", DashboardFiles(directory=str(WEB_DIR), html=True), name="dashboard")
 else:  # pragma: no cover — зависит от того, как развёрнут проект
     app.state.dashboard_missing = str(WEB_DIR)
 

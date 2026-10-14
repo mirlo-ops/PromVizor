@@ -1,4 +1,4 @@
-"""Тесты Telegram-бота (зона Gasun).
+"""Тесты Telegram-бота (наша зона ответственности).
 
 Проверяется не «работает ли код», а соблюдение договорённостей из
 `TELEGRAM-GASUN.md`, потому что именно на них чаще всего ломается
@@ -256,7 +256,7 @@ def test_cursor() -> None:
     # --- первый запуск: история пропускается ---
     client = FakeClient(events=[make_event(10), make_event(9)])
     monitor = run_monitor(client, handler)
-    asyncio.get_event_loop().run_until_complete(monitor.poll_once())
+    asyncio.run(monitor.poll_once())
     check("первый запуск: событий нет", received == [], str(received))
     check("первый запуск: курсор на конец базы", monitor.cursor == 10, str(monitor.cursor))
     check("первый запуск: спрашиваем без фильтра типа", client.calls[0][1].get("event_type") is None, str(client.calls[0]))
@@ -265,13 +265,13 @@ def test_cursor() -> None:
     received.clear()
     client = FakeClient(events=[make_event(13), make_event(12), make_event(11)])
     monitor = run_monitor(client, handler, cursor=10)
-    asyncio.get_event_loop().run_until_complete(monitor.poll_once())
+    asyncio.run(monitor.poll_once())
     order = [e["id"] for e in received]
     check("события идут от старых к новым", order == [11, 12, 13], str(order))
 
     # --- без повторов ---
     received.clear()
-    asyncio.get_event_loop().run_until_complete(monitor.poll_once())
+    asyncio.run(monitor.poll_once())
     check("повторный опрос не присылает старые", received == [], str(received))
     check("курсор не уехал назад", monitor.cursor == 13, str(monitor.cursor))
 
@@ -286,13 +286,13 @@ def test_cursor() -> None:
 
     client = FakeClient(events=[make_event(21), make_event(20)])
     monitor = run_monitor(client, flaky, cursor=19)
-    asyncio.get_event_loop().run_until_complete(monitor.poll_once())
+    asyncio.run(monitor.poll_once())
     check("при сбое курсор не двигается", monitor.cursor == 19, str(monitor.cursor))
     check("при сбое обработано только одно событие", [e["id"] for e in received] == [20], str(received))
 
     # --- повторная попытка: событие доставляется первым, затем остальные ---
     received.clear()
-    asyncio.get_event_loop().run_until_complete(monitor.poll_once())
+    asyncio.run(monitor.poll_once())
     check(
         "недоставленное событие приходит снова и идёт первым",
         [e["id"] for e in received] == [20, 21],
@@ -304,7 +304,7 @@ def test_cursor() -> None:
     received.clear()
     client = FakeClient(events=[make_event(30)], available=False)
     monitor = run_monitor(client, handler, cursor=29)
-    result = asyncio.get_event_loop().run_until_complete(monitor.poll_once())
+    result = asyncio.run(monitor.poll_once())
     check("обрыв связи не считается событием", result == 0, str(result))
     check("при обрыве ничего не отправлено", received == [], str(received))
     check("курсор при обрыве не сдвинулся", monitor.cursor == 29, str(monitor.cursor))
@@ -312,7 +312,7 @@ def test_cursor() -> None:
     # --- пустая база ---
     client = FakeClient(events=[])
     monitor = run_monitor(client, handler)
-    asyncio.get_event_loop().run_until_complete(monitor.poll_once())
+    asyncio.run(monitor.poll_once())
     check("пустая база: курсор 0", monitor.cursor == 0, str(monitor.cursor))
 
 

@@ -14,9 +14,15 @@
 бы только когда кто-то открыл страницу, и данные о простое запаздывали
 бы на минуты. API лишь читает то, что конвейер уже посчитал.
 
-Чего конвейер НЕ делает. Он не отправляет уведомления в Telegram —
-это зона Gasun (Handoff, этап 8). Конвейер фиксирует событие в базе
-и отдаёт его через API; дальше с ним работает бот.
+Чего конвейер НЕ делает. Он не отправляет уведомления в Telegram.
+Отправкой занимается отдельный процесс (app.telegram), и это сознательное
+разделение: конвейер не должен зависеть из-за сети Telegram, а бот —
+знать что-либо про видео. Конвейер фиксирует событие в базе и отдаёт
+его через API; дальше с ним работает бот.
+
+Ответственность за Telegram теперь наша (раньше она была отдана Gasun),
+но граница между процессами остаётся: конвейер по-прежнему не ходит в
+Telegram сам.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from app.core import camera_mode
 from app.core.config import settings
 from app.core.types import LineStatus, SystemStatus
 from app.database import EventRepository
@@ -264,13 +271,46 @@ class Pipeline:
 
     def _open_source(self) -> bool:
         """Открывает источник по текущему режиму."""
+        source = None
         try:
-            self.source = self._build_source()
-            self.source.open()
+            source = self._build_source()
+            source.open()
+            self.source = source
         except Exception as exc:  # noqa: BLE001
-            self.source = None
-            self._set_error(self._describe_open_error(exc))
-            return False
+            # Демо без роликов — не поломка, а отсутствие материала.
+            # Раньше откат стоял вокруг create_source(), который
+            # наличие файлов не проверяет, и синтетика не включалась
+            # никогда: конвейер без конца показывал «DEMO-видео ещё
+            # не добавлены» вместо работающей сцены.
+            if self.state.mode == camera_mode.MODE_DEMO:
+                try:
+                    source.close()
+                except Exception:
+                    pass
+                source = SyntheticSource()
+                try:
+                    source.open()
+                    self.source = source
+                except Exception as fallback_exc:  # noqa: BLE001
+                    self.source = None
+                    self._set_error(self._describe_open_error(fallback_exc))
+                    return False
+            else:
+                self.source = None
+                # Что именно пробовали открыть — без этого сообщение
+                # «камера занята» одинаково выглядит и для занятой камеры,
+                # и для неверного backend'а, и разобраться нечем.
+                tried = getattr(source, "tried_backends", None)
+                detail = ""
+                if tried:
+                    detail = " Пробовали: " + "; ".join(tried) + "."
+                self._set_error(self._describe_open_error(exc) + detail)
+                if source is not None:
+                    try:
+                        source.close()
+                    except Exception:
+                        pass
+                return False
 
         self.roi = roi_from_settings()
         self.vision = VisionPipeline()
@@ -307,12 +347,11 @@ class Pipeline:
                 raise RuntimeError("RTSP_URL не задан — сетевая камера недоступна")
             return create_source("rtsp", url=settings.rtsp_url)
 
-        # Демо: настоящие ролики, если они есть, иначе синтетика
+        # Демо: настоящие ролики, если они есть, иначе синтетика.
+        # Отсутствие роликов проверяется при open(), а не здесь,
+        # поэтому запасной вариант подставляет _open_source.
         if mode == "demo":
-            try:
-                return create_source("demo", scenario=self.scenario or "normal")
-            except Exception:
-                return SyntheticSource()
+            return create_source("demo", scenario=self.scenario or "normal")
 
         return SyntheticSource()
 
@@ -367,6 +406,13 @@ class Pipeline:
         )
         if self.state.mode == "rtsp":
             annotated = overlay.draw_banner(annotated, "НЕТ СИГНАЛА", ok=False)
+
+        # Кадры идут, но их не видно (чёрные): без полосы оператор видел бы
+        # просто чёрный прямоугольник и гадал, в чём дело.
+        problem = getattr(self.source, "problem", "") if self.source else ""
+        if problem:
+            annotated = overlay.draw_banner(annotated, "НЕТ СИГНАЛА", ok=False)
+            self._set_error(problem)
 
         self._publish(annotated, tracks, result)
 

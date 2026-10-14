@@ -157,6 +157,95 @@ def get_mode() -> dict:
     }
 
 
+@router.get("/scenarios", summary="Демо-сценарии и их ролики")
+def list_demo_scenarios() -> dict:
+    """Список демо-сценариев: есть ли ролик и как он называется.
+
+    Интерфейс строит по этому списку переключатель на таймлайне
+    активности. Отдаём и наличие ролика, и его имя: без этого
+    интерфейс предлагал бы выбрать сценарий, который нечем
+    показать, и оператор видел бы пустую камеру вместо ролика.
+    """
+    from app.video import describe_scenarios
+
+    items = describe_scenarios()
+    return {
+        "items": items,
+        "available": [item["scenario"] for item in items if item["available"]],
+        "current": camera_mode.load().demo_scenario,
+        "labels": {
+            "normal": "Всё нормально",
+            "stopped": "Линия стоит, рабочий на месте",
+            "person_left": "Рабочий ушёл, линия работает",
+            "stopped_no_person": "Линия стоит, рабочий ушёл",
+        },
+    }
+
+
+@router.post("/scenario", summary="Показать демо-сценарий")
+async def set_demo_scenario(
+    scenario: str = Query(
+        ..., description="normal | stopped | person_left | stopped_no_person"
+    ),
+    repo: EventRepository = Depends(get_repository),
+) -> dict:
+    """Включает режим demo с выбранным сценарием.
+
+    Отдельный эндпоинт, а не только параметр у /mode: переключение
+    отрезка таймлайна — самое частое действие в демо, и оно должно
+    быть одним щелчком. Переключение сценария внутри demo перезапускает
+    конвейер: ролик другой, источник надо открыть заново.
+    """
+    from app.video import describe_scenarios
+    from app.video.demo import DemoSource
+
+    if scenario not in DemoSource.SCENARIO_FILES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Неизвестный сценарий: {scenario}. "
+                f"Допустимые: {', '.join(DemoSource.SCENARIO_FILES)}"
+            ),
+        )
+
+    available = {item["scenario"]: item for item in describe_scenarios()}
+    if not available[scenario]["available"]:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Ролик сценария «{scenario}» не найден. "
+                f"Ожидался файл: {available[scenario]['file']} в demo/videos/"
+            ),
+        )
+
+    current = camera_mode.load()
+    applied = camera_mode.save(
+        camera_mode.CameraMode(
+            mode=camera_mode.MODE_DEMO,
+            webcam_index=current.webcam_index,
+            demo_scenario=scenario,
+        )
+    )
+
+    from app.api.runtime import restart_pipeline
+
+    pipeline = restart_pipeline(
+        repo,
+        mode=applied.mode,
+        camera_index=applied.webcam_index,
+        scenario=applied.demo_scenario,
+    )
+    # Даём конвейеру открыть ролик: сразу после ответа state ещё
+    # показывал бы прежний сценарий.
+    await asyncio.get_running_loop().run_in_executor(None, _wait_for_source, pipeline)
+
+    return {
+        "scenario": applied.demo_scenario,
+        "mode": applied.mode,
+        "state": pipeline.snapshot(),
+    }
+
+
 @router.post("/mode", summary="Переключить режим камеры")
 async def set_mode(
     mode: str = Query(..., description="demo | webcam | rtsp | synthetic"),
@@ -186,7 +275,12 @@ async def set_mode(
 
     from app.api.runtime import restart_pipeline
 
-    pipeline = restart_pipeline(repo, mode=applied.mode, camera_index=applied.webcam_index)
+    pipeline = restart_pipeline(
+        repo,
+        mode=applied.mode,
+        camera_index=applied.webcam_index,
+        scenario=applied.demo_scenario,
+    )
     # Даём конвейеру секунду открыть источник: сразу после ответа
     # state ещё показывал бы состояние прежнего режима
     await asyncio.get_running_loop().run_in_executor(None, _wait_for_source, pipeline)
@@ -207,33 +301,61 @@ def _wait_for_source(pipeline: Pipeline, timeout: float = 2.0) -> None:
 # Веб-камеры
 # --------------------------------------------------------------------------- #
 @router.get("/cameras", summary="Список доступных веб-камер")
-def list_webcams() -> dict:
+def list_webcams(pipeline: Pipeline = Depends(get_pipeline)) -> dict:
     """Перечисляет камеры, подключённые к компьютеру.
 
-    Перебираем индексы и пробуем открыть: у OpenCV нет нормального
-    способа спросить список устройств. Ошибка открытия — не беда,
-    камера просто не включается в список.
+    Перебор устройств честен, но у него есть особенность: камера, которую
+    уже держит конвейер, открыть повторно НЕЛЬЗЯ — она занята. Раньше
+    из-за этого список настроек оказывался пуст ровно тогда, когда камера
+    работала: оператор открывал «Настройки» и не видел ни одной камеры,
+    хотя видео на вкладке «Камеры» шло. Поэтому камеру конвейера мы
+    добавляем в список отдельно и по факту работы источника, а не по
+    результату чужой попытки её открыть.
+
+    У OpenCV нет нормального способа спросить список устройств, поэтому
+    перебираются индексы. Ошибка открытия — не беда, камера просто не
+    попадает в список.
     """
     import cv2
 
+    state = pipeline.snapshot()
+    active_index = state.get("camera_index", 0) if state.get("mode") == "webcam" else None
+    # Источник отдаёт кадры — значит, устройство рабочее, просто занято
+    # нами самими. Это единственный достоверный признак «камера жива».
+    active_works = active_index is not None and pipeline.has_frame()
+
     found: List[dict] = []
-    for index in range(MAX_PROBE_DEVICES):
+    for index in _probe_indices():
+        if index == active_index:
+            found.append(
+                {
+                    "index": index,
+                    "name": f"Камера №{index + 1}",
+                    "width": 0,
+                    "height": 0,
+                    "works": active_works,
+                    "in_use": True,
+                    "note": "сейчас используется конвейером",
+                }
+            )
+            continue
+
         capture = cv2.VideoCapture(index)
         try:
             if capture.isOpened():
                 ok, frame = capture.read()
-                width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-                height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
                 found.append(
                     {
                         "index": index,
                         "name": f"Камера №{index + 1}",
-                        "width": width,
-                        "height": height,
+                        "width": int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0),
+                        "height": int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0),
                         # Работает ли она отдаёт кадр, а не только
                         # открывается: иначе в списке будет вкладка,
                         # которая всегда молчит
                         "works": bool(ok and frame is not None),
+                        "in_use": False,
+                        "note": "",
                     }
                 )
         finally:
@@ -242,11 +364,35 @@ def list_webcams() -> dict:
     return {
         "items": found,
         "count": len(found),
+        "active_index": active_index,
         "note": (
-            "Список получен перебором устройств. Если камера не появилась — "
-            "проверьте, что она подключена и не занята другой программой."
+            "Список получен перебором устройств. Камера, которую держит "
+            "конвейер, помечена как используемая — её нельзя открыть "
+            "второй раз, и это не поломка."
         ),
     }
+
+
+def _probe_indices() -> range:
+    """Индексы устройств для перебора.
+
+    На Linux индексы соответствуют узлам /dev/videoN, поэтому берём их
+    оттуда: так в список попадут только реально существующие камеры, а
+    не десять несуществующих. На macOS и Windows таких узлов нет, и
+    индексы перебираются подряд, как и раньше.
+    """
+    import glob
+
+    indices = set()
+    for path in glob.glob("/dev/video*"):
+        tail = path.rsplit("video", 1)[-1]
+        if tail.isdigit():
+            index = int(tail)
+            if index < MAX_PROBE_DEVICES:
+                indices.add(index)
+    if indices:
+        return range(min(indices), max(indices) + 1)
+    return range(MAX_PROBE_DEVICES)
 
 
 #: Сколько устройств пробуем. Больше десяти смысла нет: на типовой
