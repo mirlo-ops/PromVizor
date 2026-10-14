@@ -1,0 +1,77 @@
+INFO:     Started server process [17760]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[ WARN:0@0.000] global cap_ffmpeg_impl.hpp:1246 open VIDEOIO/FFMPEG: OpenCV should be configured with libavdevice to open a camera device
+[ WARN:0@287.949] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@330.945] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@353.374] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@357.486] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:1@361.520] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@389.302] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@393.432] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@407.876] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@411.978] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@416.086] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@420.181] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@424.268] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@430.445] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@474.465] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@478.561] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@488.132] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@526.005] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
+[ WARN:0@534.574] global cap.cpp:446 cv::VideoCapture::open VIDEOIO(DSHOW): raised C++ exception:
+
+bad allocation
+
