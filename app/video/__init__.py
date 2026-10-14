@@ -11,7 +11,12 @@
 from __future__ import annotations
 
 from app.core.config import DemoScenario
-from app.video.demo import DemoSource, list_available_scenarios
+from app.video.demo import (
+    DemoSource,
+    describe_scenarios,
+    list_available_scenarios,
+    scenario_file,
+)
 from app.video.rtsp import RtspSource
 from app.video.source import VideoSource
 from app.video.webcam import WebcamSource
@@ -23,6 +28,8 @@ __all__ = [
     "RtspSource",
     "create_source",
     "list_available_scenarios",
+    "describe_scenarios",
+    "scenario_file",
 ]
 
 

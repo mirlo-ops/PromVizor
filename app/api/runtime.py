@@ -45,12 +45,16 @@ def _build(repo, camera_id: Optional[int]) -> Pipeline:
     )
 
 
-def restart_pipeline(repo, mode: str, camera_index: int = 0) -> Pipeline:
+def restart_pipeline(repo, mode: str, camera_index: int = 0, scenario: str = "") -> Pipeline:
     """Перезапускает конвейер в новом режиме.
 
     Порядок важен: старый источник закрывается ДО создания нового.
     Иначе при переключении на ту же камеру она осталась бы занята
     предыдущим подключением и не открылась бы второй раз.
+
+    Сценарий передаётся отдельно: без него переключение ролика на
+    таймлайне применяло бы режим demo, но продолжало показывать
+    ПРЕДЫДУЩИЙ ролик — выглядело бы как «переключил, а видео то же».
     """
     global _pipeline
 
@@ -66,6 +70,7 @@ def restart_pipeline(repo, mode: str, camera_index: int = 0) -> Pipeline:
             camera_id=settings.camera_id,
             mode=mode,
             camera_index=camera_index,
+            scenario=scenario or None,
         )
         _pipeline.start()
         return _pipeline

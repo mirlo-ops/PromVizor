@@ -77,9 +77,13 @@ class PersonDetector:
         confidence: Optional[float] = None,
         person_classes: Optional[Sequence[int]] = None,
         backend: Optional[DetectionBackend] = None,
+        imgsz: Optional[int] = None,
     ) -> None:
         self.roi = roi or default_roi()
         self.model_name = model_name or settings.yolo_model
+        # Размер входа детектора. Меньше — быстрее, но мелкий человек
+        # в кадре перестаёт находиться вовсе.
+        self.imgsz = int(imgsz if imgsz is not None else settings.yolo_imgsz)
         self.confidence = (
             settings.yolo_confidence if confidence is None else float(confidence)
         )
@@ -161,9 +165,12 @@ class PersonDetector:
             frame,
             conf=self.confidence,
             classes=list(self.person_classes),
-            # Уменьшенный размер входа заметно ускоряет CPU-инференс на
-            # обычных веб-камерах, сохраняя достаточную детализацию для людей.
-            imgsz=416,
+            # Размер входа берётся из настроек. Раньше здесь стояло
+            # жёстко зашитое 416, и это была главная причина «человека
+            # не видно»: на далёком плане цеха рабочий занимает
+            # ~40 пикселей по высоте, и в 416 он превращался в пятно
+            # в несколько пикселей, мимо которого YOLO проходил.
+            imgsz=self.imgsz,
             verbose=False,
         )
         return _boxes_from_results(results)

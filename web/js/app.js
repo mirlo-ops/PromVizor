@@ -201,6 +201,10 @@
         await data.reload(sections.state.day);
         updateSystemPill();
         if (currentSection === "monitoring") sections.render(sections.state.tab);
+        /* Состояние конвейера: без него на экране нет объяснения,
+           почему видео чёрное — «нет сигнала» или запрет доступа
+           к камере приходят отсюда. */
+        await sections.refreshVideoState();
         tick();
       }, 5000);
     }
@@ -244,7 +248,7 @@
     Promise.all([
       data.load(sections.state.day),
       sections.loadVideoConfig(),
-    ]).then(() => {
+    ]).then(async () => {
       /* Стоимость минуты приходит с backend'а: показываем ту,
          что он считает, а не значение из локальных настроек. */
       const cfg = data.config();
@@ -255,6 +259,7 @@
       updateSystemPill();
       renderTopbar();
       sections.renderSection(currentSection);
+      await sections.refreshVideoState();
       /* Лог печатается здесь, а не в конце boot(): к этому
          моменту источник данных уже известен. Иначе в консоли
          всегда был бы «mock» — загрузка ещё не завершилась. */

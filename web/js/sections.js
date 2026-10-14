@@ -33,8 +33,24 @@
       webcamIndex: 0,
       webcams: [],
       applied: false,
+      /* Демо-сценарии: список роликов с сервера. Порядок задан
+         здесь, а не берётся из ответа: подписи должны идти в
+         задуманном порядке (норма → остановка → ушёл → простой),
+         а сервер перечисляет их как удобно ему. */
+      scenarios: [],
+      scenarioLabels: {},
+      scenarioOrder: ["normal", "stopped", "person_left", "stopped_no_person"],
+      demoScenario: "",
     },
   };
+
+  /* Адрес потока видео. Берётся у API-клиента, а не пишется
+     относительным путём: см. api.baseUrl(). */
+  function streamUrl() {
+    const api = global.PV && global.PV.api;
+    const base = api && typeof api.baseUrl === "function" ? api.baseUrl() : "";
+    return base + "/api/video/stream";
+  }
 
   function loadSettings() {
     const def = {
@@ -215,7 +231,14 @@
         </div>
 
         <div class="video-stage">
-          <img id="videoFeed" data-stream-src="/api/video/stream" alt="Видео с камеры ${esc(cam.name)}">
+          <!-- src задан прямо в разметке, а не только скриптом.
+               Раньше здесь стоял лишь data-stream-src, и адрес выставлял
+               render() — если он по какой-то причине не отработал,
+               <img> оставался вообще без источника: на экране был
+               чёрный прямоугольник с вполне живой вёрсткой вокруг, и
+               оператор не мог понять, камера это или интерфейс.
+               Теперь видео включается сразу, вместе с отрисовкой. -->
+          <img id="videoFeed" src="${esc(streamUrl())}" data-stream-src="${esc(streamUrl())}" alt="Видео с камеры ${esc(cam.name)}" onerror="window.PV &amp;&amp; window.PV.sections &amp;&amp; window.PV.sections.markFeedBroken()">
           <div class="video-overlay">
             <div class="ov-top">
               <span class="ov-chip">${esc(v.modeLabel || v.mode)} · Линия ${line}</span>
@@ -225,6 +248,7 @@
               <span class="ov-chip ov-time">${ts}</span>
             </div>
           </div>
+          <div class="video-empty" id="videoEmpty" hidden></div>
         </div>
 
         <div class="player-bar">
@@ -243,8 +267,54 @@
           ${tip}
         </div>
         <div class="activity-axis"><span>06:00</span><span>12:00</span><span>18:00</span><span>00:00</span></div>
+        ${renderScenarioPicker(v)}
       </div>
     </div>`;
+  }
+
+  /* Переключатель демо-сценариев под таймлайном активности.
+
+     Каждый отрезок — один ролик. Сценарий переключается щелчком по
+     отрезку, без отдельного списка и без перезагрузки страницы: в
+     демо это самое частое действие, и лишний шаг между «увидел
+     простой» и «показал его на видео» стирает смысл демонстрации.
+
+     Порядок и подписи берём у backend'а: он же сообщает, какие
+     ролики на месте. Без этого интерфейс предлагал бы выбрать
+     сценарий, который нечем показать. */
+  function renderScenarioPicker(v) {
+    const items = v.scenarios || [];
+    if (!items.length) return "";
+    const current = v.demoScenario || "";
+
+    const segs = items
+      .map((item) => {
+        const key = item.scenario;
+        const label = (v.scenarioLabels && v.scenarioLabels[key]) || key;
+        const cls = [
+          "scenario-seg",
+          key === current ? "is-active" : "",
+          item.available ? "" : "is-missing",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return `<button class="${cls}" data-scenario="${key}" type="button"
+                  title="${esc(label)}${item.available ? " — " + esc(item.file) : " — ролик не найден"}">
+                  <span class="scenario-num">${esc(String(v.scenarioOrder.indexOf(key) + 1))}</span>
+                  <span class="scenario-label">${esc(label)}</span>
+                </button>`;
+      })
+      .join("");
+
+    return `
+      <div class="scenario-picker">
+        <div class="scenario-head">
+          ${icon("film")}<h4>Демо-сценарии</h4>
+          <span class="scenario-hint">отрезок — один ролик, щёлкните чтобы посмотреть</span>
+        </div>
+        <div class="scenario-track" id="scenarioTrack">${segs}</div>
+        <div class="scenario-note" id="scenarioNote"></div>
+      </div>`;
   }
 
   /* ============================================================
@@ -922,8 +992,14 @@
 
   /* Загружает режим камеры и список веб-камер с сервера. */
   async function loadVideoConfig() {
+    /* Адреса берём у API-клиента, а не пишем относительными путями:
+       при открытии Dashboard не с адреса backend'а (отдельный
+       статический сервер или другая машина) запросы настроек уходили
+       не туда, режим камеры оставался «синтетика», и оператор вообще
+       не понимал, в каком режиме система работает. */
+    const base = global.PV.api.baseUrl();
     try {
-      const modeResponse = await fetch("/api/video/mode");
+      const modeResponse = await fetch(base + "/api/video/mode");
       if (modeResponse.ok) {
         const mode = await modeResponse.json();
         state.video.mode = mode.mode;
@@ -937,13 +1013,71 @@
     }
 
     try {
-      const camerasResponse = await fetch("/api/video/cameras");
+      const camerasResponse = await fetch(base + "/api/video/cameras");
       if (camerasResponse.ok) {
         const list = await camerasResponse.json();
         state.video.webcams = list.items || [];
       }
     } catch (e) {
       state.video.webcams = [];
+    }
+
+    await loadScenarios(base);
+  }
+
+  /* Список демо-сценариев с сервера: какие ролики на месте и как
+     сценарий называется по-русски. */
+  async function loadScenarios(base) {
+    try {
+      const response = await fetch(base + "/api/video/scenarios");
+      if (!response.ok) return;
+      const payload = await response.json();
+      state.video.scenarios = payload.items || [];
+      state.video.scenarioLabels = payload.labels || {};
+      state.video.demoScenario = payload.current || "";
+    } catch (e) {
+      state.video.scenarios = [];
+    }
+  }
+
+  /* Переключение демо-сценария щелчком по отрезку. */
+  async function selectScenario(key, button) {
+    const base = global.PV.api.baseUrl();
+    const note = document.getElementById("scenarioNote");
+    const buttons = Array.from(
+      document.querySelectorAll("#scenarioTrack .scenario-seg")
+    );
+    buttons.forEach((b) => b.classList.remove("is-pending"));
+    if (button) button.classList.add("is-pending");
+    if (note) note.textContent = "";
+
+    try {
+      const response = await fetch(
+        base + "/api/video/scenario?scenario=" + encodeURIComponent(key),
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        let detail = "HTTP " + response.status;
+        try {
+          const body = await response.json();
+          if (body && body.detail) detail = String(body.detail);
+        } catch (e) {
+          /* тело не JSON — оставляем код ответа */
+        }
+        throw new Error(detail);
+      }
+
+      state.video.demoScenario = key;
+      // Ролик другой — поток надо перезапустить, иначе в окне камеры
+      // остался бы предыдущий кадр и выглядело бы, что ничего не сменилось.
+      restartVideoFeed();
+      setVideoError("");
+      global.PV.sections.render("cameras");
+      toast("Сценарий: " + (state.video.scenarioLabels[key] || key));
+    } catch (err) {
+      if (note) note.textContent = "Не удалось переключить сценарий: " + err.message;
+      toast("Не удалось переключить сценарий: " + err.message, "err");
+      buttons.forEach((b) => b.classList.remove("is-pending"));
     }
   }
 
@@ -1015,10 +1149,102 @@
   function restartVideoFeed() {
     const feed = document.getElementById("videoFeed");
     if (feed) {
-      // Меняем адрес на неотличимый — иначе браузер покажет
-      // предыдущий кадр из кэша
-      feed.src = feed.src.split("?")[0] + "?t=" + Date.now();
+      // Адрес берём из разметки, а не из feed.src. Раньше здесь было
+      // feed.src.split("?")[0] + "?t=" + Date.now(), и если src ещё не
+      // был выставлен, получался относительный адрес «?t=1757…» —
+      // браузер грузил бы его сам, от другого хоста, и картинка была бы
+      // чёрной навсегда, уже без возможности понять почему.
+      const base = (feed.dataset.streamSrc || streamUrl()).split("?")[0];
+      feed.src = base + "?t=" + Date.now();
+      startFeedWatchdog();
     }
+  }
+
+  /* ------------------------------------------------------------
+     Контроль потока.
+
+     MJPEG не сообщает браузеру ни об ошибке, ни о том, что поток
+     перестал идти: оборванный поток молча оставляет <img> с последним
+     кадром, а если кадр не пришёл ни разу — с чёрным прямоугольником.
+     Для оператора это неотличимо от «камера молчит».
+
+     Поэтому отдельно следим за признаками жизни: поток не начался
+     вовремя или оборвался — показываем причину прямо на видео.
+     ------------------------------------------------------------ */
+  let feedWatchdog = null;
+
+  const FEED_GRACE_MS = 8000;   // сколько ждём первый кадр
+  const FEED_RETRY_MS = 5000;   // пауза перед повторной попыткой
+
+  function feedMessage() {
+    const v = state.video;
+    if (v.error) return v.error;
+    if (!global.PV.api.ready()) {
+      return "Нет связи с сервером — видео недоступно.";
+    }
+    return "Видеопоток не отвечает. Камера не отдаёт кадры.";
+  }
+
+  function showFeedMessage(text) {
+    const box = document.getElementById("videoEmpty");
+    if (!box) return;
+    box.hidden = false;
+    box.textContent = text;
+  }
+
+  function hideFeedMessage() {
+    const box = document.getElementById("videoEmpty");
+    if (box) box.hidden = true;
+  }
+
+  function startFeedWatchdog() {
+    if (feedWatchdog) clearTimeout(feedWatchdog);
+    feedWatchdog = setTimeout(function () {
+      const feed = document.getElementById("videoFeed");
+      // Кадр пришёл — поток живой, вмешиваться нечего
+      if (feed && feed.naturalWidth > 0) {
+        hideFeedMessage();
+        return;
+      }
+      showFeedMessage(feedMessage());
+      restartVideoFeed();
+    }, FEED_GRACE_MS);
+  }
+
+  /* Вызывается из onerror у <img>: адрес потока недоступен целиком. */
+  function markFeedBroken() {
+    showFeedMessage(
+      "Видеопоток недоступен по адресу " +
+        streamUrl() +
+        ". Проверьте, что backend запущен."
+    );
+  }
+
+  async function refreshVideoState() {
+    /* Состояние конвейера — источник ПРАВДЫ о том, что с камерой.
+       Раньше оно не запрашивалось вовсе, и формулировки вроде
+       «Нет сигнала с камеры» или «кадры идут, но чёрные» до интерфейса
+       не доходили: оператор видел просто чёрный прямоугольник и гадал.
+       Запрашиваем не каждый кадр, а раз в цикл автообновления. */
+    const base = global.PV.api.baseUrl();
+    try {
+      const response = await fetch(base + "/api/video/state");
+      if (!response.ok) return;
+      const s = await response.json();
+      setVideoError(s.error || "");
+    } catch (e) {
+      /* Сервер не ответил — про это уже сообщает data.reload() */
+    }
+  }
+
+  /* Причина, по которой видео может не идти, хранится здесь: она
+     приходит с backend'а вместе с состоянием конвейера и объясняет
+     не только «камера молчит», но и «кадры идут, но чёрные» —
+     на macOS это запрет доступа к камере. */
+  function setVideoError(text) {
+    state.video.error = text || "";
+    if (text) showFeedMessage(text);
+    else hideFeedMessage();
   }
 
   function renderSettings() {
@@ -1195,7 +1421,12 @@
     /* Настройки режима камеры нужны app.js при старте:
        до загрузки они с сервера неизвестны. */
     loadVideoConfig,
+    refreshVideoState,
+    loadScenarios,
+    selectScenario,
     restartVideoFeed,
+    markFeedBroken,
+    setVideoError,
 
     /* Без аргумента перерисовываем текущий раздел.
        Раньше view становился undefined, state.section обнулялся,
@@ -1227,8 +1458,11 @@
           liveFeed.alt = feed.alt;
           if (!liveFeed.src) liveFeed.src = feed.dataset.streamSrc;
         } else if (feed) {
-          feed.src = feed.dataset.streamSrc;
+          // На всякий случай: src уже задан в разметке, но после
+          // переноса старого <img> он мог остаться пустым
+          if (!feed.src) feed.src = feed.dataset.streamSrc;
         }
+        startFeedWatchdog();
       }
       // Не сбрасываем прокрутку при перерисовке того же раздела (смена даты)
       if (view) el.scrollTop = 0;
@@ -1246,6 +1480,11 @@
       on(root, "click", "#lineSwitch button", (e, b) => {
         state.camLine = +b.dataset.line;
         this.render("cameras");
+      });
+
+      /* --- выбор демо-сценария отрезком на таймлайне --- */
+      on(root, "click", "#scenarioTrack .scenario-seg", (e, b) => {
+        selectScenario(b.dataset.scenario, b);
       });
 
       /* --- play/pause --- */

@@ -22,12 +22,21 @@ class DemoSource(VideoSource):
     source_type = "demo"
     is_demo = True
 
-    # Ожидаемые файлы в demo/videos/ (COMMON-папка)
+    # Ожидаемые файлы в demo/videos/ (COMMON-папка).
+    # Первое имя — каноническое, второе — то, под каким ролик
+    # положили фактически. Раньше принималось только одно имя, и
+    # ролики, залитые как «1_vidos.mp4», не находились: демо-режим
+    # молча падал в «видео ещё не добавлены», хотя файлы лежали в
+    # папке. Теперь подходит любое из двух имён.
     SCENARIO_FILES = {
-        DemoScenario.NORMAL: "normal.mp4",  # 1. Нормальная работа
-        DemoScenario.STOPPED: "stopped.mp4",  # 2. Остановка линии (человек на месте)
-        DemoScenario.PERSON_LEFT: "person_left.mp4",  # 3. Рабочий уходит из ROI
-        DemoScenario.STOPPED_NO_PERSON: "downtime.mp4",  # 4. Главный сценарий: простой
+        # 1. Всё нормально: линия работает, рабочий в кадре
+        DemoScenario.NORMAL: ("normal.mp4", "1_vidos.mp4"),
+        # 2. Линия остановилась, рабочий в кадре (обслуживание)
+        DemoScenario.STOPPED: ("stopped.mp4", "2_vidos.mp4"),
+        # 3. Рабочий уходит из кадра, линия работает
+        DemoScenario.PERSON_LEFT: ("person_left.mp4", "3_vidos.mp4"),
+        # 4. Главный сценарий: линия стоит и рабочий ушёл → ПРОСТОЙ
+        DemoScenario.STOPPED_NO_PERSON: ("downtime.mp4", "4_vidos.mp4"),
     }
 
     def __init__(self, scenario: str = DemoScenario.NORMAL, loop: bool = True) -> None:
@@ -43,8 +52,15 @@ class DemoSource(VideoSource):
     # ------------------------------------------------------------------ #
     @property
     def video_path(self) -> str:
-        filename = self.SCENARIO_FILES[self.scenario]
-        return os.path.join(settings.demo_video_dir, filename)
+        """Путь к ролику сценария — первый из существующих."""
+        names = self.SCENARIO_FILES[self.scenario]
+        for name in names:
+            candidate = os.path.join(settings.demo_video_dir, name)
+            if os.path.isfile(candidate):
+                return candidate
+        # Ни одного нет — возвращаем каноническое имя, чтобы в
+        # сообщении об ошибке было видно, что искалось.
+        return os.path.join(settings.demo_video_dir, names[0])
 
     def _create_capture(self, cv2):  # noqa: ANN001
         path = self.video_path
@@ -54,8 +70,8 @@ class DemoSource(VideoSource):
                 f"Ожидался файл: {path}\n"
                 "Ожидаемые имена (demo/videos/):\n"
                 + "\n".join(
-                    f"  {scenario:<18} → {filename}"
-                    for scenario, filename in self.SCENARIO_FILES.items()
+                    f"  {scenario:<18} → {' или '.join(names)}"
+                    for scenario, names in self.SCENARIO_FILES.items()
                 )
             )
         return cv2.VideoCapture(path)
@@ -93,10 +109,36 @@ class DemoSource(VideoSource):
 
 def list_available_scenarios() -> list[str]:
     """Сценарии, для которых ролики уже лежат в demo/videos/."""
-    return [
-        scenario
-        for scenario in DemoSource.SCENARIO_FILES
-        if os.path.isfile(
-            os.path.join(settings.demo_video_dir, DemoSource.SCENARIO_FILES[scenario])
+    available = []
+    for scenario, names in DemoSource.SCENARIO_FILES.items():
+        if any(
+            os.path.isfile(os.path.join(settings.demo_video_dir, name)) for name in names
+        ):
+            available.append(scenario)
+    return available
+
+
+def scenario_file(scenario: str) -> Optional[str]:
+    """Имя файла ролика для сценария, если он есть. Иначе None."""
+    names = DemoSource.SCENARIO_FILES.get(scenario)
+    if not names:
+        return None
+    for name in names:
+        if os.path.isfile(os.path.join(settings.demo_video_dir, name)):
+            return name
+    return None
+
+
+def describe_scenarios() -> list[dict]:
+    """Список сценариев для интерфейса: есть ли ролик и как он называется."""
+    result = []
+    for scenario, names in DemoSource.SCENARIO_FILES.items():
+        filename = scenario_file(scenario)
+        result.append(
+            {
+                "scenario": scenario,
+                "file": filename or names[0],
+                "available": filename is not None,
+            }
         )
-    ]
+    return result
