@@ -213,6 +213,58 @@ async def test_notifications() -> None:
     check("при блокировке чата событие ждёт", ok is False)
 
 
+async def test_notify_accepts_application() -> None:
+    """Фоновый опрос передаёт Application, а не контекст PTB.
+
+    Именно здесь ошибка стоила работы системе: обработчик читал
+    `context.application.bot_data`, а получал объект Application, у
+    которого атрибута `.application` нет. Каждое уведомление падало,
+    бот при этом выглядел живым — он опрашивал backend и печатал
+    ошибку. Поэтому проверяются оба вида получателя.
+    """
+    print("\n4. Отправка уведомлений: контекст и Application")
+
+    from app.telegram.bot import _notify
+
+    finished = {
+        "id": 2, "camera_id": 1, "event": "DOWNTIME_FINISHED",
+        "start_time": "12:40", "end_time": "12:45",
+        "duration_seconds": 300, "estimated_loss": 3750.0,
+    }
+
+    # 1. Контекст PTB: бот в .bot, данные в .application.bot_data
+    context = make_context()
+    ok = await handle_event(finished, context)
+    check("контекст PTB: уведомление отправлено", ok is True)
+    check(
+        "контекст PTB: чат взят из bot_data",
+        context.bot.send_message.call_args.kwargs["chat_id"] == "12345",
+    )
+
+    # 2. Application: бот в .bot, данные в .bot_data
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    app = MagicMock()
+    app.bot = bot
+    app.bot_data = {"chat_ids": ["111", "222"], "chat_id": "111"}
+    ok = await handle_event(finished, app)
+    check("Application: уведомление отправлено", ok is True)
+    check(
+        "Application: сообщение ушло в оба чата",
+        bot.send_message.await_count == 2,
+        f"вызовов: {bot.send_message.await_count}",
+    )
+    chats = [c.kwargs["chat_id"] for c in bot.send_message.await_args_list]
+    check("Application: чаты из bot_data", chats == ["111", "222"], str(chats))
+
+    # 3. Приложение без чатов: молча возвращаем False, а не падаем
+    empty = MagicMock()
+    empty.bot = AsyncMock()
+    empty.bot_data = {}
+    ok = await _notify(empty, "текст")
+    check("без чатов уведомление не отправляется", ok is False)
+
+
 # --------------------------------------------------------------------------- #
 async def test_registration() -> None:
     print("\n4. Регистрация команд")
@@ -278,6 +330,7 @@ async def main() -> int:
     await test_commands()
     await test_backend_down()
     await test_notifications()
+    await test_notify_accepts_application()
     await test_registration()
     await test_cursor_persistence()
 

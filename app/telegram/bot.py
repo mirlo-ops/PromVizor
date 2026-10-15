@@ -31,7 +31,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -235,20 +235,63 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # --------------------------------------------------------------------------- #
 # Уведомления
 # --------------------------------------------------------------------------- #
-async def _notify(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+def _resolve(target) -> tuple[Any, list[str]]:
+    """Достаёт (бот, список чатов) из того, что передали.
+
+    Принимается и контекст PTB, и сам Application. Разница принципиальна:
+    у контекста бот лежит в `.bot`, а данные — в `.application.bot_data`,
+    тогда как у Application бот и есть `self`, а данные — `self.bot_data`.
+    Раньше обработчик событий получал Application, но читал его как
+    контекст, и каждое уведомление падало с «Application object has no
+    attribute application» — бот жил, а сообщения не уходили.
+
+    Принимать оба нужно потому, что команды вызывает PTB (там
+    контекст), а фоновый опрос — наш код (там Application).
+    """
+    # Признак Application — словарь bot_data. Проверять наличие
+    # атрибута нельзя: объект, отвечающий на любое имя (например,
+    # тестовая заглушка), выдал бы себя за Application и уведомление
+    # ушло бы мимо чатов.
+    bot_data = getattr(target, "bot_data", None)
+    if isinstance(bot_data, dict):
+        app = target
+    else:
+        app = target.application
+    # Бот лежит на том же объекте, который нам дали: у контекста это
+    # context.bot, у Application — application.bot. Поэтому сперва
+    # смотрим на переданный объект, и лишь потом на приложение.
+    bot = getattr(target, "bot", None)
+    if bot is None:
+        bot = getattr(app, "bot", None)
+
+    chat_ids = list(app.bot_data.get("chat_ids", []))
+    if not chat_ids:
+        # Запасной путь для одиночного чата: он заполняется при старте,
+        # но в тестах и при нестандартной сборке может быть пустым.
+        single = app.bot_data.get("chat_id", "")
+        chat_ids = [single] if single else []
+    return bot, chat_ids
+
+
+async def _notify(target, text: str) -> bool:
     """Отправляет уведомление. True — доставлено, курсор можно двигать.
 
     Сообщение уходит всем чатам из TELEGRAM_CHAT_ID: уведомление о
     простое обычно нужно и мастеру, и руководителю. Событие считается
-    доставленным, только когда дошло до всех: иначе чат, который не
-    принял сообщение, потерял бы его навсегда.
+    доставленным, когда оно ушло хоть одному: иначе чат, который не
+    принял сообщение, заблокировал бы продвижение курсора и все
+    следующие события ждали бы его вечно.
     """
-    chat_ids: list[str] = context.application.bot_data["chat_ids"]
+    bot, chat_ids = _resolve(target)
+    if bot is None or not chat_ids:
+        logger.warning("нет бота или чатов для отправки — уведомление пропущено")
+        return False
+
     delivered = False
 
     for chat_id in chat_ids:
         try:
-            await context.bot.send_message(
+            await bot.send_message(
                 chat_id=chat_id, text=text, parse_mode=ParseMode.HTML
             )
             delivered = True
@@ -263,8 +306,10 @@ async def _notify(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     return delivered
 
 
-async def handle_event(update: dict, context: ContextTypes.DEFAULT_TYPE) -> bool:
+async def handle_event(update: dict, target) -> bool:
     """Обработчик события для `EventMonitor`.
+
+    `target` — контекст PTB или сам Application (см. _resolve).
 
     Возвращает True, когда событие доставлено и курсор можно сдвинуть.
     """
@@ -283,7 +328,7 @@ async def handle_event(update: dict, context: ContextTypes.DEFAULT_TYPE) -> bool
     if text is None:
         return True
 
-    return await _notify(context, text)
+    return await _notify(target, text)
 
 
 # --------------------------------------------------------------------------- #
