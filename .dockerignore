@@ -1,0 +1,53 @@
+# Что НЕ попадает в образ: контекст сборки Docker отправляет всю папку
+# целиком, и без этого списка в образ уехали бы .venv на Windows (~500 МБ
+# с чужими DLL), база с реальными событиями и .env с токеном Telegram.
+
+# Секреты
+.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Данные: в образе им не место, наружу — через том
+*.db
+*.db-wal
+*.db-shm
+camera_mode.json
+telegram_cursor.json
+
+# Веса YOLO — качаются в том при первом запуске, в образе не нужны
+*.pt
+*.onnx
+*.engine
+runs/
+
+# Логи локальных запусков
+server.log
+server.err.log
+
+# Исходники иконок (Illustrator), весят много и серверу не нужны
+assets/
+
+# Тесты в боевой образ не попадают
+tests/
+
+# Git и редакторы
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Документы — по методичке, а не в контейнер
+README.md
+Handoff Lev.txt
+TELEGRAM-GASUN.md
+run.ps1

@@ -1,0 +1,16 @@
+# Зависимости backend'а БЕЗ ultralytics — «лёгкий» образ Dockerfile
+# (сборка по умолчанию). Экономит ~554 МБ: ultralytics тянет torch.
+#
+# Правки вносить ЗДЕСЬ и в requirements.txt одновременно: Dockerfile
+# выбирает один из двух файлов, и разъезд между ними выглядел бы как
+# «в Docker работает, локально нет».
+
+opencv-python-headless>=4.10   # на сервере без GUI; для видео и компьютерного зрения
+numpy>=2.0
+
+fastapi>=0.115
+uvicorn>=0.32
+
+# Бот обслуживает отдельный образ (Dockerfile.telegram), но httpx нужен
+# и здесь: тесты API используют fastapi.testclient.
+httpx>=0.27

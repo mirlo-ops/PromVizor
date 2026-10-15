@@ -19,13 +19,14 @@ import asyncio
 import time
 from typing import AsyncIterator, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.core import camera_mode
 from app.core.config import settings
 from app.database.repository import EventRepository
 from app.pipeline.runner import Pipeline
+from app.video import browsercam
 
 # Импорт делается на уровне модуля: routes.py не знает про этот файл,
 # поэтому цикла импортов не возникает.
@@ -137,7 +138,68 @@ def video_state(pipeline: Pipeline = Depends(get_pipeline)) -> dict:
     """Режим, источник, ошибка, число людей и треки."""
     state = pipeline.snapshot()
     state["mode_label"] = camera_mode.describe_mode(state["mode"])
+    # Передача с браузера — отдельная история жизни источника, её
+    # видно в интерфейсе: идёт поток или кадры давно перестали приходить.
+    state["browser"] = browsercam.snapshot()
     return state
+
+
+# --------------------------------------------------------------------------- #
+# Камера из браузера
+# --------------------------------------------------------------------------- #
+#: Больше кадра принимать незачем: 1280x720 в JPEG — порядка 150 КБ,
+#: а телефон может прислать 4 МБ. Лимит защищает сервер от случайной
+#: отправки, а не ограничивает нормальную передачу.
+MAX_BROWSER_FRAME_BYTES = 3 * 1024 * 1024
+
+
+@router.post("/browser/frame", summary="Кадр с камеры браузера (JPEG)")
+async def browser_frame(request: Request) -> JSONResponse:
+    """Принимает один JPEG-кадр из браузера пользователя.
+
+    Тело запроса — «сырой» JPEG, без multipart и без base64: так
+    кадр уходит за один HTTP-запрос и не раздувается на треть.
+    Обработка (декодирование) уходит в поток — иначе тяжёлый кадр
+    блокировал бы цикл uvicorn и подтормаживал API.
+    """
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Пустой кадр")
+    if len(payload) > MAX_BROWSER_FRAME_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Кадр слишком большой: {len(payload) // 1024} КБ. "
+                f"Ограничение — {MAX_BROWSER_FRAME_BYTES // 1024 // 1024} МБ"
+            ),
+        )
+
+    loop = asyncio.get_running_loop()
+    accepted = await loop.run_in_executor(None, browsercam.submit_jpeg, payload)
+    if not accepted:
+        # Чаще всего это не JPEG: присылать нужно картинку, а не путь
+        # или текст. Отвечаем 415 — по коду ответа причина понятна.
+        raise HTTPException(
+            status_code=415, detail="Не удалось декодировать кадр: ожидается JPEG"
+        )
+
+    return JSONResponse({"ok": True, **browsercam.snapshot()})
+
+
+@router.post("/browser/stop", summary="Браузер прекратил передачу")
+def browser_stop() -> dict:
+    """Браузер закрыл вкладку или остановил передачу.
+
+    Кадр забывается сразу: иначе окно камеры ещё полсекунды показывало
+    бы картинку ушедшего браузера и «нет сигнала» пришло бы с задержкой.
+    """
+    browsercam.reset()
+    return {"ok": True}
+
+
+@router.get("/browser", summary="Состояние передачи с браузера")
+def browser_state() -> dict:
+    return browsercam.snapshot()
 
 
 # --------------------------------------------------------------------------- #
@@ -248,7 +310,7 @@ async def set_demo_scenario(
 
 @router.post("/mode", summary="Переключить режим камеры")
 async def set_mode(
-    mode: str = Query(..., description="demo | webcam | rtsp | synthetic"),
+    mode: str = Query(..., description="demo | webcam | rtsp | synthetic | browser"),
     webcam_index: int = Query(0, ge=0, le=20),
     demo_scenario: str = Query("normal"),
     repo: EventRepository = Depends(get_repository),

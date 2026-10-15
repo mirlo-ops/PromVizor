@@ -1,0 +1,150 @@
+# ПромВизор — развёртывание на VPS.
+#
+#   docker compose up -d --build
+#   docker compose logs -f api
+#   docker compose down
+#
+# Порядок: запустите compose сначала с режимом demo (значение по
+# умолчанию), убедитесь что Dashboard открылся, и только потом
+# переключайте FORCED_CAMERA_MODE на rtsp и задавайте RTSP_URL —
+# иначе конвейер сразу пойдёт в стену несуществующей камеры.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Поставьте 1, если нужна детекция человека (YOLO).
+      # Образ станет ~2.5 ГБ, и VPS с 2 ГБ RAM не потянет — тогда
+      # берите тачку побольше или оставайтесь на demo.
+      args:
+        INSTALL_YOLO: "0"
+    image: promvizor:0.1
+    restart: unless-stopped
+    ports:
+      # "127.0.0.1:8000:8000" — порт НЕ торчит в интернет: наружу его
+      # отдаёт nginx с сертификатом. Если хотите проверить сразу, без
+      # nginx, замените на "8000:8000".
+      - "127.0.0.1:8000:8000"
+    environment:
+      # --- Экономика ---
+      COST_PER_MINUTE: "750"
+
+      # --- Детекция ---
+      YOLO_MODEL: "yolo26n.pt"
+      YOLO_IMGSZ: "960"
+      YOLO_CONFIDENCE: "0.35"
+
+      # --- Адрес прослушивания ---
+      #
+      # Обязательно 0.0.0.0. В .env.example стоит 127.0.0.1, и
+      # env_file ниже перебьёт значение из Dockerfile: 127.0.0.1
+      # внутри контейнера — это сам контейнер, и наружу не достучаться.
+      # Поэтому переменная объявлена здесь, а в .env её можно не
+      # трогать. Поле environment имеет приоритет над env_file.
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+
+      # --- Где лежит база ---
+      #
+      # Объявлено здесь, а не только в .env, потому что env_file сильнее
+      # переменных образа, а .env на сервере общий для обоих способов
+      # развёртывания. В инструкции для systemd там
+      # DATABASE_PATH=/opt/promvizor/data/promvizor.db — такой путь
+      # внутри контейнера не в томе, и sqlite3 не смог бы создать файл.
+      DATABASE_PATH: "/var/lib/promvizor/promvizor.db"
+
+      # --- Камера ---
+      #
+      # CAMERA_ID — просто номер, ему нечего стыдиться в репозитории.
+      # А вот DEFAULT_SOURCE, FORCED_CAMERA_MODE и RTSP_URL здесь
+      # намеренно НЕ заданы: это свойство конкретной площадки, и в
+      # compose.yml они оказались бы в git вместе с логином и
+      # паролем камеры. Задавайте в .env на сервере:
+      #
+      #   DEFAULT_SOURCE=rtsp          стартовый режим
+      #   FORCED_CAMERA_MODE=rtsp      запретить смену режима в UI
+      #   RTSP_URL=rtsp://user:pass@host:554/stream
+      #
+      # Дублировать их здесь нельзя: поле environment имеет приоритет
+      # над env_file, и FORCED_CAMERA_MODE="" из этого файла перебьёт
+      # значение из .env — режим камеры не зафиксируется, и его можно
+      # будет переключить в интерфейсе.
+      CAMERA_ID: "1"
+
+      # --- Порог простоя ---
+      DOWNTIME_THRESHOLD_SECONDS: "30"
+
+      # --- Контролируемая зона ---
+      # Свойство конкретной камеры: под свой план цеха эти четыре
+      # числа правятся тут, без изменения исходников.
+      ROI_LEFT: "0.15"
+      ROI_TOP: "0.12"
+      ROI_RIGHT: "0.90"
+      ROI_BOTTOM: "0.80"
+
+      # --- CORS: пусто — любой источник. На публичном сервере задайте
+      # явно, например "https://promvizor.example.ru". В штатном
+      # режиме не нужно: Dashboard отдаётся тем же сервером.
+      API_CORS_ORIGINS: ""
+
+      # --- Telegram ---
+      # Токен и chat id берутся из .env (env_file ниже), а не отсюда:
+      # секрет в docker-compose.yml уехал бы в git вместе с файлом.
+      # Самому backend'у эти переменные не нужны — он только отдаёт
+      # данные боту, который их читает.
+
+    env_file:
+      # Необязателен: секреты (токен Telegram) можно задать и здесь.
+      # Требуется, только если хотите читать значения из файла —
+      # например COST_PER_MINUTE или ROI под свою камеру.
+      - path: .env
+        required: false
+
+    volumes:
+      # База, режим камеры, веса YOLO. Именно том, а не файлы контейнера:
+      # без него `docker compose down` уносит историю простоя.
+      - promvizor-data:/var/lib/promvizor
+    # Камера в контейнере — только RTSP. Веб-камеры тут быть не может:
+    # у контейнера нет доступа к USB-устройствам. Режим webcam в
+    # контейнере откроет пустой поток.
+    #
+    # Сеть: default (bridge) — камера должна быть достижима отсюда.
+    # Если камера в локальной сети завода, а VPS в интернете, default
+    # НЕ подойдёт: нужен macvlan или WireGuard-туннель. Проще поставить
+    # сервер внутри сети — см. раздел README.
+    networks:
+      - default
+
+  # Telegram-бот — отдельный процесс (он опрашивает API по HTTP,
+  # а не импортирует его), поэтому отдельный сервис.
+  telegram:
+    build:
+      context: .
+      dockerfile: Dockerfile.telegram
+    image: promvizor-telegram:0.1
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # Внутри сети compose адрес сервиса — его имя, а не localhost.
+      TELEGRAM_API_URL: "http://api:8000"
+      TELEGRAM_POLL_SECONDS: "10"
+    env_file:
+      # Отсюда бот берёт TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID.
+      # Без него бот честно завершится с кодом 1 и напишет в журнал,
+      # что токен не задан.
+      - path: .env
+        required: false
+    volumes:
+      # Курсор бота: без тома при перезапуске он примет на себя всю
+      # историю простоя заново и пришлёт в чат уведомления задним
+      # числом — за месяц, а не за последние десять секунд.
+      - telegram-data:/data
+
+volumes:
+  promvizor-data:
+  telegram-data:
+
+networks:
+  default:

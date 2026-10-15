@@ -1,0 +1,46 @@
+# ПромВизор — образ Telegram-бота.
+#
+# Бот отдельным образом не из упрямства: он опрашивает backend по HTTP
+# (PromVizorClient), а не импортирует его. Смешав в одном контейнере, вы
+# получите две копии настроек и два курсора Telegram, а backend всё
+# равно придётся перезапускать вместе с ботом.
+#
+#   docker build -f Dockerfile.telegram -t promvizor-telegram:0.1 .
+
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /opt/promvizor
+
+# Ни opencv, ни ultralytics боту не нужны: он ходит в API по HTTP.
+# torch сюда не попадает — образ бота ~80 МБ.
+RUN pip install "python-telegram-bot>=21.0" "httpx>=0.27"
+
+# Копируем только app/telegram и app/core: из core боту нужны одни
+# настройки (config.py, env.py — там нет ни cv2, ни torch). Видео,
+# базу и API боту не нужны: он ходит к backend'у по HTTP.
+COPY app/telegram ./app/telegram
+COPY app/core ./app/core
+
+RUN useradd --system --uid 10002 --create-home promvizor \
+    && mkdir -p /data \
+    && chown -R promvizor:promvizor /data /opt/promvizor
+
+# Курсор последнего прочитанного события: telegram_cursor.json.
+# Относительный путь читается от текущего каталога, поэтому WORKDIR
+# должен совпадать с точкой монтирования тома — иначе курсор писался
+# бы в образ и терялся при пересоздании контейнера.
+#
+# Код лежит в /opt/promvizor, а работаем мы из /data (том с курсором),
+# поэтому пакет app ищется через PYTHONPATH: без него `python -m
+# app.telegram.bot` из /data не найдёт модуль и упадёт.
+ENV PYTHONPATH=/opt/promvizor
+
+USER promvizor
+WORKDIR /data
+
+CMD ["python", "-m", "app.telegram.bot"]

@@ -955,9 +955,55 @@
   /* ============================================================
      РЕЖИМ КАМЕРЫ: подсказки и выбор камеры
      ============================================================ */
+  /* Кадры с камеры браузера: идёт передача или нет. Здесь только
+     состояние для подписи — сами кадры идёт web/js/browsercam.js,
+     а считает всё сервер. */
+  function isBrowserCamActive() {
+    return !!(global.PV.browsercam && global.PV.browsercam.isActive());
+  }
+
+  function browserCamHint() {
+    if (!global.PV.browsercam) return "Модуль передачи не загружен";
+    const info = global.PV.browsercam.describe();
+    if (info.error) return info.error;
+    if (info.active) return "Идёт передача: отправлено кадров — " + info.sent;
+    return (
+      "Кадры с камеры отправляются на сервер, обрабатывает их сервер. " +
+      "Нужен HTTPS: по http браузер не отдаст камеру."
+    );
+  }
+
+  async function toggleBrowserCam() {
+    const button = document.getElementById("browserCamToggle");
+    const note = document.getElementById("modeNote");
+    if (!button) return;
+    button.disabled = true;
+    try {
+      if (isBrowserCamActive()) {
+        global.PV.browsercam.stop();
+        if (note) note.textContent = "Передача остановлена";
+      } else {
+        const preview = document.getElementById("browserPreview");
+        const error = await global.PV.browsercam.start(preview);
+        if (error) {
+          if (note) note.textContent = error;
+          toast(error, "err");
+        } else {
+          if (note) note.textContent = "Передача идёт, считает сервер";
+          toast("Кадры с камеры передаются на сервер");
+        }
+      }
+      this.render("settings");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function modeHint(mode) {
+    if (mode === "browser")
+      return "Камера этого компьютера, но обрабатывает сервер. Нажмите «Применить» и разрешите доступ: браузер будет передавать кадры, а считать простой и ущерб будет сервер.";
     if (mode === "webcam")
-      return "Видео с камеры компьютера. Человек в кадре — всё штатно; исчез — простой фиксируется в отчёте.";
+      return "Видео с камеры КОМПЬЮТЕРА СЕРВЕРА. На хостинге такой камеры нет — режим покажет «нет сигнала». Для камеры на вашем ноутбуке выберите «из браузера».";
     if (mode === "rtsp")
       return "Сетевая камера. В Alpha недоступна: в окне камер будет «нет сигнала».";
     if (mode === "demo")
@@ -1125,6 +1171,19 @@
         // Сервер не принял выбор — например, режим запрещён окружением.
         toast("Сервер оставил режим: " + label, "err");
         note.textContent = "Выбор не применён";
+      }
+
+      /* Камера из браузера: включаем передачу только тогда, когда сервер
+         действительно переключился на этот режим. Иначе оператор смотрел
+         бы на пустое окно и думал, что камера сломалась. Уход с режима
+         камеру выключивает: в комнате не должен гореть зелёный
+         индикатор, когда сервер уже смотрит в другой источник. */
+      if (applied.mode === "browser" && mode === "browser") {
+        await global.PV.browsercam.start(
+          document.getElementById("browserPreview")
+        );
+      } else if (applied.mode !== "browser" && isBrowserCamActive()) {
+        global.PV.browsercam.stop();
       }
 
       // Проблема источника — отдельное сообщение, не вместо подтверждения.
@@ -1306,10 +1365,22 @@
           <select class="input" id="s_mode">
             <option value="synthetic" ${v.mode === "synthetic" ? "selected" : ""}>Демо — синтетическая сцена</option>
             <option value="demo" ${v.mode === "demo" ? "selected" : ""}>Демо — ролики сценариев</option>
-            <option value="webcam" ${v.mode === "webcam" ? "selected" : ""}>Веб-камера</option>
+            <option value="browser" ${v.mode === "browser" ? "selected" : ""}>Веб-камера — из браузера (считает сервер)</option>
+            <option value="webcam" ${v.mode === "webcam" ? "selected" : ""}>Веб-камера сервера</option>
             <option value="rtsp" ${v.mode === "rtsp" ? "selected" : ""}>Сетевая камера</option>
           </select>
           <div class="hint" id="modeHint">${esc(modeHint(v.mode))}</div>
+        </div>
+
+        <div class="field ${v.mode === "browser" ? "" : "is-hidden"}" id="browserCamField">
+          <label>Передача с вашей камеры</label>
+          <video id="browserPreview" class="browser-preview" autoplay muted playsinline></video>
+          <div class="hint" id="browserCamHint">${esc(browserCamHint())}</div>
+          <div class="set-actions" style="padding-top:10px">
+            <button class="btn-primary" id="browserCamToggle">${
+              isBrowserCamActive() ? "Остановить передачу" : "Передавать мою камеру"
+            }</button>
+          </div>
         </div>
 
         <div class="field ${v.mode === "webcam" ? "" : "is-hidden"}" id="webcamField">
@@ -1620,6 +1691,7 @@
 
       /* --- режим камеры --- */
       on(root, "click", "#applyMode", () => applyVideoMode());
+      on(root, "click", "#browserCamToggle", () => toggleBrowserCam());
 
       /* Смена режима перерисовывает блок: поле выбора камеры нужно
          только в режиме веб-камеры, а подсказка зависит от режима. */

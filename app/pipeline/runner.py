@@ -44,6 +44,7 @@ from app.pipeline.tracker import PersonTracker, Track
 from app.vision import PersonDetector, VisionPipeline, VisionResult
 from app.vision.roi import roi_from_settings
 from app.video import create_source
+from app.video.browsercam import BrowserSource
 
 #: Частота кадров синтетической сцены. Совпадает с той, с какой её
 #: рисует SyntheticSource, иначе сцена шла бы быстрее реального времени.
@@ -336,6 +337,12 @@ class Pipeline:
     def _build_source(self):
         mode = self.state.mode
 
+        if mode == camera_mode.MODE_BROWSER:
+            # Кадры приходят из браузера пользователя (POST на
+            # /api/video/browser/frame). Источник открывается всегда:
+            # пока браузер не подключился, он просто не отдаёт кадр.
+            return BrowserSource()
+
         if mode == "webcam":
             return create_source("webcam", device_index=self.state.camera_index)
 
@@ -368,14 +375,26 @@ class Pipeline:
 
     def _threshold_for(self, mode: str) -> int:
         """Порог подтверждения простоя для режима."""
-        if mode == "webcam":
+        if mode in ("webcam", camera_mode.MODE_BROWSER):
             # ТЗ: в режиме веб-камеры 5 секунд — условность именно
-            # этого режима, на сетевой камере и демо он другой
+            # этого режима, на сетевой камере и демо он другой.
+            # Камера из браузера — тот же случай: человек ушёл из
+            # кадра, всё считает сервер.
             return settings.downtime_threshold_webcam_seconds
         return settings.downtime_threshold_demo_seconds
 
     def _handle_no_frame(self) -> None:
         """Источник не дал кадр: это «нет сигнала»."""
+        if self.state.mode == camera_mode.MODE_BROWSER:
+            # Источник НЕ закрывается: браузер может вернуться через
+            # минуту (переключили вкладку, разрешили камеру позже), и
+            # закрытие обнулило бы трекер и секундомер простоя.
+            self._set_error(
+                "Нет сигнала с браузера: кадры не передаются. "
+                "Разрешите доступ к камере на этой странице."
+            )
+            time.sleep(0.5)
+            return
         if self.state.mode in ("webcam", "rtsp"):
             self._set_error("Нет сигнала с камеры")
         else:
@@ -387,6 +406,12 @@ class Pipeline:
     # Обработка кадра
     # ------------------------------------------------------------------ #
     def _process(self, frame) -> None:
+        # Кадр пошёл — значит сигнал есть, и прежнее «нет сигнала» больше
+        # неправда. Раньше ошибка жила до переключения режима: браузер
+        # подключался через секунду после запроса, а надпись «нет сигнала
+        # с браузера» оставалась на экране навсегда, хотя видео шло.
+        self._clear_transient_error()
+
         detections = self._detect(frame)
         tracks = self.tracker.update(detections)
 
@@ -463,7 +488,7 @@ class Pipeline:
         motion_result = self.vision.motion.update(frame)
 
         line_status = motion_result.line_status
-        if self.state.mode in ("webcam", "synthetic") and not person_present:
+        if self.state.mode in ("webcam", "synthetic", camera_mode.MODE_BROWSER) and not person_present:
             line_status = LineStatus.STOPPED
 
         return VisionResult(
@@ -527,6 +552,19 @@ class Pipeline:
 
     def _set_error(self, message: str) -> None:
         self.state.error = message
+
+    #: Ошибки, которые снимаются первым же успешным кадром: они
+    #: описывают ОТСУТСТВИЕ сигнала, а не поломку конвейера.
+    TRANSIENT_ERROR_PREFIXES = (
+        "Нет сигнала",
+        "Браузер не передаёт",
+        "Передача с браузера прервалась",
+    )
+
+    def _clear_transient_error(self) -> None:
+        error = self.state.error
+        if error and error.startswith(self.TRANSIENT_ERROR_PREFIXES):
+            self.state.error = ""
 
     # ------------------------------------------------------------------ #
     # Доступ извне

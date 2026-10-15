@@ -1,0 +1,54 @@
+[Unit]
+Description=ПромВизор — Telegram-бот
+After=network-online.target promvizor-api.service
+Wants=network-online.target
+# Бот опрашивает API по HTTP. Стартовать раньше бессмысленно:
+# первые опросы упадут, и до backend'а он дотянется на своей
+# следующей итерации — но лишние ошибки в журнале сбивают.
+Wants=promvizor-api.service
+
+[Service]
+Type=simple
+User=promvizor
+Group=promvizor
+
+WorkingDirectory=/opt/promvizor/data
+
+# .env общий с API: токен и chat id нужны только боту, но держать
+# два файла с секретами — значит забыть обновить один из них.
+EnvironmentFile=/opt/promvizor/.env
+Environment=PYTHONUNBUFFERED=1
+# Работаем из data (там курсор), код лежит в корне проекта.
+Environment=PYTHONPATH=/opt/promvizor
+# Внутри одной машины backend доступен по этому адресу. В Docker
+# (docker-compose.yml) вместо него http://api:8000.
+Environment=TELEGRAM_API_URL=http://127.0.0.1:8000
+
+ExecStart=/opt/promvizor/.venv/bin/python -m app.telegram.bot
+
+Restart=always
+RestartSec=10
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# Telegram ходит наружу по TCP и unix-сокетам — AF_INET/AF_INET6/AF_UNIX.
+# AF_NETLINK убран: локальной сети боту не нужно.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Курсор telegram_cursor.json. Без этого каталога бот упал бы на
+# попытке сохранить его при ProtectSystem=strict.
+ReadWritePaths=/opt/promvizor/data
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=promvizor-telegram
+
+[Install]
+WantedBy=multi-user.target

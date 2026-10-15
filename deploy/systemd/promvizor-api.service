@@ -1,0 +1,86 @@
+[Unit]
+Description=ПромВизор — API, Dashboard и конвейер видео
+Documentation=file:/opt/promvizor/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Запуск НЕ из-под root. Приложение пишет только в каталог данных,
+# больше прав не требуется. Работа от root означала бы, что любая
+# ошибка разбора видео даёт процессу полный доступ к машине.
+User=promvizor
+Group=promvizor
+
+# Рабочий каталог — data, а не корень проекта. Относительные пути
+# promvizor.db и camera_mode.json разрешаются от него, и под
+# ProtectSystem=strict весь /opt/promvizor доступен только на чтение:
+# из корня проекта запись в базу падала бы с Permission denied.
+# Код при этом находится в /opt/promvizor — пакет app ищется через
+# PYTHONPATH.
+WorkingDirectory=/opt/promvizor/data
+EnvironmentFile=/opt/promvizor/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/promvizor
+
+# --workers 1 — обязательно. Конвейер видео живёт в процессе
+# (app/api/runtime.py). Со вторым воркером камера откроется дважды,
+# второму её не достанется, и в базу полезут дубликаты событий.
+ExecStart=/opt/promvizor/.venv/bin/python -m uvicorn app.api.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 1 \
+    --proxy-headers \
+    --forwarded-allow-ips 127.0.0.1
+
+# ExecReload здесь намеренно нет. uvicorn не обрабатывает SIGHUP:
+# systemd отправил бы сигнал, приложение его проигнорировало бы,
+# а `systemctl reload` выглядел бы как успешная перезагрузка, которая
+# ничего не сделала. Для обновления кода: systemctl restart.
+
+# Перезапуск при падении. always, а не on-failure: при остановке
+# systemd во время обновления сервис поднимается обратно сам, и
+# переживает падение хоста и перезагрузку.
+Restart=always
+RestartSec=5
+
+# WatchdogSec тоже нет: он ждёт от процесса сообщений systemd
+# (sd_notify), которых uvicorn не шлёт. Без них systemd убил бы
+# работающий сервис по таймауту — то есть watchdog здесь не
+# «сторожит», а просто ломает. За зависание отвечает Restart.
+
+# --- Изоляция процесса ---
+#
+# Приложению не нужны ни ядерныеCapabilities, ни доступ к устройствам.
+# Закрываем лишнее: при эксплуатации уязвимости в OpenCV или FastAPI
+# это ограничивает ущерб.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+# LockPersonality, MemoryDenyWriteExecute: осторожно — PyTorch и
+# ultralytics при включённом YOLO иногда требуют исполняемую
+# память для JIT. Если сервис перестанет стартовать, закомментируйте
+# MemoryDenyWriteExecute.
+LockPersonality=true
+# MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Единственная папка, куда можно писать: база, режим камеры, веса YOLO.
+# Остальная система после ProtectSystem=strict доступна только на чтение.
+ReadWritePaths=/opt/promvizor/data
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=promvizor
+
+[Install]
+WantedBy=multi-user.target

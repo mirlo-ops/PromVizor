@@ -33,8 +33,9 @@ MODE_DEMO = "demo"
 MODE_WEBCAM = "webcam"
 MODE_RTSP = "rtsp"
 MODE_SYNTHETIC = "synthetic"
+MODE_BROWSER = "browser"
 
-ALL_MODES = (MODE_DEMO, MODE_WEBCAM, MODE_RTSP, MODE_SYNTHETIC)
+ALL_MODES = (MODE_DEMO, MODE_WEBCAM, MODE_RTSP, MODE_SYNTHETIC, MODE_BROWSER)
 
 #: Куда сохраняется выбор
 SETTINGS_FILE = Path("camera_mode.json")
@@ -155,9 +156,10 @@ def describe_mode(mode: str) -> str:
     """Человекочитаемое название режима для интерфейса."""
     return {
         MODE_DEMO: "Демо-ролики",
-        MODE_WEBCAM: "Веб-камера",
+        MODE_WEBCAM: "Веб-камера сервера",
         MODE_RTSP: "Сетевая камера",
         MODE_SYNTHETIC: "Демо (синтетика)",
+        MODE_BROWSER: "Веб-камера (из браузера)",
     }.get(mode, mode)
 
 
@@ -171,4 +173,5 @@ __all__ = [
     "MODE_WEBCAM",
     "MODE_RTSP",
     "MODE_SYNTHETIC",
+    "MODE_BROWSER",
 ]
