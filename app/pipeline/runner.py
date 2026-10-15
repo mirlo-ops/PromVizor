@@ -327,7 +327,12 @@ class Pipeline:
             camera_id=self.camera_id,
             threshold_seconds=threshold,
             resume_confirm_seconds=0,
-            clock=lambda: 0.0,
+            # Таймер идёт по time.monotonic(), а «ЧЧ:ММ» в событии —
+            # по стенным часам. Раньше подпись clock=lambda: 0.0
+            # делала метки событий нулевыми, а format_clock() рисовал
+            # из них время: на сервере событие в 23:38 записывалось
+            # как «00:00». Монотонность таймера нужна, подмена часов —
+            # нет.
         )
         self.state.detection_source = "synthetic" if mode == "synthetic" else "yolo"
         self.state.error = ""
