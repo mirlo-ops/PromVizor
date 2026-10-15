@@ -359,10 +359,15 @@ def main() -> int:
 
     cursor_path = Path(CURSOR_FILE)
 
-    async def _watch() -> None:
+    async def _watch(app: Application) -> None:
+        # Именно app, а не замыкание на внешний application: раньше
+        # сюда попадал объект Application, и обработчик события искал
+        # у него .application — такого атрибута нет, и уведомления
+        # падали с AttributeError на каждом событии. Бот при этом
+        # выглядел живым: он опрашивал backend и печатал ошибку.
         monitor = EventMonitor(
             client=client,
-            handler=lambda event: handle_event(event, application),
+            handler=lambda event: handle_event(event, app),
             poll_seconds=poll_seconds,
             cursor=_load_cursor(cursor_path),
         )
@@ -381,8 +386,12 @@ def main() -> int:
 
             await asyncio.sleep(poll_seconds)
 
-    async def _post_init(application: Application) -> None:
-        application.create_task(_watch())
+    async def _post_init(app: Application) -> None:
+        # _watch(app), а не _watch(): Application ждёт вызов с
+        # параметром, и без него фон не запускался вовсе — тосты PTB
+        # об этом предупреждают, но в журнале среди десятка строк
+        # INFO это легко пропустить.
+        app.create_task(_watch(app))
 
     application.post_init = _post_init
 
