@@ -40,6 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api import auth as api_auth
 from app.api.routes import close_database, get_database, router
 from app.api.runtime import stop_pipeline
 from app.api.stream import router as video_router
@@ -90,6 +91,29 @@ app = FastAPI(
 
 app.include_router(router)
 app.include_router(video_router)
+
+
+# --------------------------------------------------------------------------- #
+# Вход на сайт
+# --------------------------------------------------------------------------- #
+#: Маршруты проверки пароля объявляются ДО включения защиты: иначе
+#: страница входа сама оказалась бы за защитой и не смогла войти.
+app.add_api_route(
+    "/api/auth/check",
+    api_auth.check_password,
+    methods=["POST"],
+    tags=["вход"],
+    summary="Проверить логин и пароль",
+)
+app.add_api_route(
+    "/api/auth/session",
+    api_auth.session_status,
+    methods=["GET"],
+    tags=["вход"],
+    summary="Состояние входа в этой вкладке",
+)
+
+app.middleware("http")(api_auth.guard)
 
 
 # --------------------------------------------------------------------------- #

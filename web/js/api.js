@@ -51,6 +51,28 @@
     return DEFAULT_BASE;
   }
 
+  /* Отметка о входе в ЭТУ вкладку.
+     sessionStorage, а не localStorage: у каждой вкладки своё
+     хранилище. Новая вкладка спросит пароль снова, обновление
+     страницы внутри этой же — нет. */
+  function authToken() {
+    try {
+      return sessionStorage.getItem("pv_auth") || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  /* Заголовки для запроса: отметка о входе плюс обычное Accept.
+     Без отметки сервер отдал бы вместо данных страницу входа, и
+     интерфейс показал бы «нет связи с сервером» вместо входа. */
+  function authHeaders(extra) {
+    const headers = extra || {};
+    const token = authToken();
+    if (token) headers["X-Promvizor-Auth"] = token;
+    return headers;
+  }
+
   /* ---------- низкоуровневый запрос ---------- */
   async function request(path, params) {
     const url = new URL(apiBase() + path, location.href);
@@ -71,9 +93,24 @@
       const response = await fetch(url.toString(), {
         method: "GET",
         signal: controller.signal,
-        headers: { Accept: "application/json" },
+        headers: authHeaders({ Accept: "application/json" }),
         cache: "no-store",
       });
+
+      /* Сервер ответил «нужен вход» вместо данных. Молча показывать
+         «нет связи с сервером» здесь нельзя: причина не в связи, а в
+         пароле, и оператор полчаса искал бы несуществующую проблему.
+         Отметка у этой вкладки могла протухнуть — убираем её и
+         перезагружаем: сервер отдаст форму входа. */
+      if (response.status === 401) {
+        try {
+          sessionStorage.removeItem("pv_auth");
+        } catch (e) {
+          /* хранилище недоступно — перезагрузка всё равно покажет вход */
+        }
+        location.reload();
+        return null;
+      }
 
       if (!response.ok) {
         // Тело ошибки полезно: backend кладёт туда понятный текст
@@ -269,6 +306,11 @@
     markConnected(value) {
       state.connected = value === true;
     },
+
+    /* Отметка о входе и заголовки с ней: нужны модулю камеры,
+       который шлёт кадры напрямую, минуя этот клиент. */
+    authToken,
+    authHeaders,
   };
 
   global.PV = global.PV || {};

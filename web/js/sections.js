@@ -45,11 +45,22 @@
   };
 
   /* Адрес потока видео. Берётся у API-клиента, а не пишется
-     относительным путём: см. api.baseUrl(). */
+     относительным путём: см. api.baseUrl().
+
+     Здесь отметка о входе попадает В АДРЕС, потому что поток
+     открывается тегом <img> — а на такой запрос браузер не даёт
+     вешать заголовки. Адрес не попадает в историю браузера, но
+     останется в журнале сервера, поэтому на сервере такие адреса
+     вырезаются из access-log. */
   function streamUrl() {
     const api = global.PV && global.PV.api;
     const base = api && typeof api.baseUrl === "function" ? api.baseUrl() : "";
-    return base + "/api/video/stream";
+    let url = base + "/api/video/stream";
+    if (api && typeof api.authToken === "function") {
+      const token = api.authToken();
+      if (token) url += "?pv_auth=" + encodeURIComponent(token);
+    }
+    return url;
   }
 
   function loadSettings() {
@@ -274,6 +285,12 @@
 
   /* Переключатель демо-сценариев под таймлайном активности.
 
+     Показывается ТОЛЬКО в режиме «Демо — ролики сценариев».
+     Раньше блок был виден всегда, и это вводило в заблуждение:
+     сценарии относятся к роликам, а в синтетике или в режиме камеры
+     из браузера переключение ничего не меняло — оператор щёлкал по
+     отрезку и видел, что картинка не изменилась.
+
      Каждый отрезок — один ролик. Сценарий переключается щелчком по
      отрезку, без отдельного списка и без перезагрузки страницы: в
      демо это самое частое действие, и лишний шаг между «увидел
@@ -285,6 +302,10 @@
   function renderScenarioPicker(v) {
     const items = v.scenarios || [];
     if (!items.length) return "";
+    /* Сценарии — это ролики из demo/videos. В других режимах их нет,
+       поэтому и показывать нечего: клик по отрезку не изменил бы
+       ничего. */
+    if (v.mode !== "demo") return "";
     const current = v.demoScenario || "";
 
     const segs = items
@@ -1003,7 +1024,7 @@
     if (mode === "browser")
       return "Камера этого компьютера, но обрабатывает сервер. Нажмите «Применить» и разрешите доступ: браузер будет передавать кадры, а считать простой и ущерб будет сервер.";
     if (mode === "webcam")
-      return "Видео с камеры КОМПЬЮТЕРА СЕРВЕРА. На хостинге такой камеры нет — режим покажет «нет сигнала». Для камеры на вашем ноутбуке выберите «из браузера».";
+      return "Камера КОМПЬЮТЕРА СЕРВЕРА. В режиме выставочного сервера такой камеры нет — выберите «из браузера», чтобы отдать кадры с вашего ноутбука.";
     if (mode === "rtsp")
       return "Сетевая камера. В Alpha недоступна: в окне камер будет «нет сигнала».";
     if (mode === "demo")
@@ -1100,7 +1121,7 @@
     try {
       const response = await fetch(
         base + "/api/video/scenario?scenario=" + encodeURIComponent(key),
-        { method: "POST" }
+        { method: "POST", headers: global.PV.api.authHeaders() }
       );
       if (!response.ok) {
         let detail = "HTTP " + response.status;
@@ -1141,8 +1162,9 @@
     note.textContent = "Переключаем источник видео…";
     try {
       const response = await fetch(
-        `/api/video/mode?mode=${encodeURIComponent(mode)}&webcam_index=${webcamIndex}`,
-        { method: "POST" }
+        global.PV.api.baseUrl() +
+          `/api/video/mode?mode=${encodeURIComponent(mode)}&webcam_index=${webcamIndex}`,
+        { method: "POST", headers: global.PV.api.authHeaders() }
       );
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -1214,7 +1236,15 @@
       // браузер грузил бы его сам, от другого хоста, и картинка была бы
       // чёрной навсегда, уже без возможности понять почему.
       const base = (feed.dataset.streamSrc || streamUrl()).split("?")[0];
-      feed.src = base + "?t=" + Date.now();
+      /* Метка времени нужна, чтобы <img> перезапросил кадр, и
+         отметка о входе — чтобы сервер не отдал вместо потока
+         страницу входа (картинка была бы вечной «заглушкой»). */
+      const token = global.PV.api.authToken();
+      feed.src =
+        base +
+        "?t=" +
+        Date.now() +
+        (token ? "&pv_auth=" + encodeURIComponent(token) : "");
       startFeedWatchdog();
     }
   }
@@ -1366,7 +1396,6 @@
             <option value="synthetic" ${v.mode === "synthetic" ? "selected" : ""}>Демо — синтетическая сцена</option>
             <option value="demo" ${v.mode === "demo" ? "selected" : ""}>Демо — ролики сценариев</option>
             <option value="browser" ${v.mode === "browser" ? "selected" : ""}>Веб-камера — из браузера (считает сервер)</option>
-            <option value="webcam" ${v.mode === "webcam" ? "selected" : ""}>Веб-камера сервера</option>
             <option value="rtsp" ${v.mode === "rtsp" ? "selected" : ""}>Сетевая камера</option>
           </select>
           <div class="hint" id="modeHint">${esc(modeHint(v.mode))}</div>

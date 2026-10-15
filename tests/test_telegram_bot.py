@@ -62,9 +62,18 @@ def make_context(client=None, chat_id="12345", bot=None):
     Данные кладутся в `context.application.bot_data` — именно оттуда
     их читают обработчики (в реальном приложении это `bot_data`
     самого `Application`).
+
+    `chat_ids` — список чатов для уведомлений: уведомление о простое
+    обычно нужно нескольким людям. `chat_id` оставлен для обратной
+    совместимости с командами, отвечающими лично.
     """
     context = MagicMock()
-    context.application.bot_data = {"client": client, "chat_id": chat_id}
+    chats = [c.strip() for c in str(chat_id).split(",") if c.strip()]
+    context.application.bot_data = {
+        "client": client,
+        "chat_id": chats[0] if chats else "",
+        "chat_ids": chats,
+    }
     context.bot = bot or MagicMock()
     if bot is None:
         context.bot.send_message = AsyncMock()

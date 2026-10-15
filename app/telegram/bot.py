@@ -54,6 +54,11 @@ from app.telegram.formatter import (
     format_unavailable,
 )
 from app.telegram.monitor import EventMonitor
+from app.telegram.proxy import (
+    ProxySettings,
+    build_telegram_proxy,
+    load_proxy_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +90,21 @@ def _read_settings() -> tuple[str, str, str, float]:
     poll_seconds = float(os.environ.get("TELEGRAM_POLL_SECONDS", "10"))
 
     return token, chat_id, base_url, poll_seconds
+
+
+def parse_chat_ids(raw: str) -> list[str]:
+    """Разбирает список чатов из TELEGRAM_CHAT_ID.
+
+    Уведомления о простое обычно нужны нескольким людям: мастеру смены
+    и руководителю. Раньше поддерживался только один чат, и второму
+    просто не приходило ничего — при этом в `.env` молча оставалось
+    значение «750743167,8851242509», которое Telegram принимает за
+    несуществующий чат и отвечает ошибкой 400.
+
+    Формат: `id1,id2` через запятую, пробелы игнорируются. Для группы
+    используется её id со знаком минус.
+    """
+    return [part.strip() for part in (raw or "").replace(";", ",").split(",") if part.strip()]
 
 
 # --------------------------------------------------------------------------- #
@@ -216,21 +236,31 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # Уведомления
 # --------------------------------------------------------------------------- #
 async def _notify(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
-    """Отправляет уведомление. True — доставлено, курсор можно двигать."""
-    chat_id: str = context.application.bot_data["chat_id"]
+    """Отправляет уведомление. True — доставлено, курсор можно двигать.
 
-    try:
-        await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
-    except Forbidden:
-        # Чат недоступен навсегда. Пока держим событие необработанным:
-        # иначе оно потеряется молча, а чат может разблокировать.
-        logger.warning("чат %s заблокировал бота, событие ждёт", chat_id)
-        return False
-    except (NetworkError, TelegramError) as exc:
-        logger.warning("не удалось отправить уведомление: %s", exc)
-        return False
+    Сообщение уходит всем чатам из TELEGRAM_CHAT_ID: уведомление о
+    простое обычно нужно и мастеру, и руководителю. Событие считается
+    доставленным, только когда дошло до всех: иначе чат, который не
+    принял сообщение, потерял бы его навсегда.
+    """
+    chat_ids: list[str] = context.application.bot_data["chat_ids"]
+    delivered = False
 
-    return True
+    for chat_id in chat_ids:
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id, text=text, parse_mode=ParseMode.HTML
+            )
+            delivered = True
+        except Forbidden:
+            # Чат заблокировал бота: это навсегда, и повторять
+            # бессмысленно — но и событие не помечаем доставленным,
+            # если оно ушло хоть кому-то.
+            logger.warning("чат %s заблокировал бота", chat_id)
+        except (NetworkError, TelegramError) as exc:
+            logger.warning("не удалось отправить в чат %s: %s", chat_id, exc)
+
+    return delivered
 
 
 async def handle_event(update: dict, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -259,15 +289,32 @@ async def handle_event(update: dict, context: ContextTypes.DEFAULT_TYPE) -> bool
 # --------------------------------------------------------------------------- #
 # Запуск
 # --------------------------------------------------------------------------- #
-def build_application(token: str) -> Application:
-    """Собирает приложение бота с командами."""
-    application = (
+def build_application(
+    token: str, proxy: Optional[ProxySettings] = None
+) -> Application:
+    """Собирает приложение бота с командами.
+
+    `proxy` — только для связи с Telegram. Обращения к backend'у идут
+    по-прежнему напрямую: пускать данные о простое завода через
+    сторонний прокси незачем, а при неверной настройке прокси это ещё
+    и выглядело бы как «бот не читает данные».
+    """
+    builder = (
         ApplicationBuilder()
         .token(token)
         .connect_timeout(REQUEST_TIMEOUT)
         .read_timeout(REQUEST_TIMEOUT)
-        .build()
     )
+
+    proxy_settings = proxy or load_proxy_settings()
+    if proxy_settings.configured:
+        # Здесь может подняться ValueError из-за адреса без логина —
+        # это понятная причина, и она попадёт в журнал бота вместе с
+        # подсказкой, а не молча превратится в «Telegram недоступен».
+        builder = builder.proxy(build_telegram_proxy(proxy_settings))
+        logger.info("Telegram: %s", proxy_settings.describe())
+
+    application = builder.build()
 
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("help", cmd_help))
@@ -286,20 +333,29 @@ def main() -> int:
     )
 
     token, chat_id, base_url, poll_seconds = _read_settings()
+    chat_ids = parse_chat_ids(chat_id)
 
-    if not token or not chat_id:
+    if not token or not chat_ids:
         logger.error(
             "Не заданы TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID.\n"
             "Добавьте их в .env (см. .env.example) и запустите бота снова."
         )
         return 1
 
-    logger.info("backend: %s, чат: %s, опрос: %.0f сек", base_url, chat_id, poll_seconds)
+    proxy = load_proxy_settings()
+    logger.info(
+        "backend: %s, чат: %s, опрос: %.0f сек, Telegram: %s",
+        base_url,
+        chat_ids,
+        poll_seconds,
+        proxy.describe(),
+    )
 
-    application = build_application(token)
+    application = build_application(token, proxy)
     client = PromVizorClient(base_url)
     application.bot_data["client"] = client
-    application.bot_data["chat_id"] = chat_id
+    application.bot_data["chat_ids"] = chat_ids
+    application.bot_data["chat_id"] = chat_ids[0] if chat_ids else ""
 
     cursor_path = Path(CURSOR_FILE)
 

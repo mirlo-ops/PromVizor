@@ -53,6 +53,25 @@
     return "";
   }
 
+  /* Отметка о входе в эту вкладку (sessionStorage — он общий на
+     вкладку, а не на весь браузер). Берём через api.js, если он
+     загружен, иначе читаем хранилище сами. */
+  function headersWithAuth(extra) {
+    const headers = extra || {};
+    let token = "";
+    if (global.PV && global.PV.api && global.PV.api.authToken) {
+      token = global.PV.api.authToken();
+    } else {
+      try {
+        token = sessionStorage.getItem("pv_auth") || "";
+      } catch (e) {
+        token = "";
+      }
+    }
+    if (token) headers["X-Promvizor-Auth"] = token;
+    return headers;
+  }
+
   function notify() {
     if (typeof state.onStateChange === "function") {
       state.onStateChange(describe());
@@ -106,7 +125,9 @@
     try {
       const response = await fetch(apiBase() + "/api/video/browser/frame", {
         method: "POST",
-        headers: { "Content-Type": "image/jpeg" },
+        /* Отметка о входе: без неё кадр не примет ни одна защита,
+           и камера «перестала работать» после входа. */
+        headers: headersWithAuth({ "Content-Type": "image/jpeg" }),
         body: blob,
       });
       if (response.ok) {
@@ -228,7 +249,10 @@
     state.ctx = null;
 
     if (wasSending) {
-      fetch(apiBase() + "/api/video/browser/stop", { method: "POST" }).catch(
+      fetch(apiBase() + "/api/video/browser/stop", {
+        method: "POST",
+        headers: headersWithAuth(),
+      }).catch(
         function () {
           /* сервер мог уже не отвечать — молча, камеру мы уже выключили */
         }

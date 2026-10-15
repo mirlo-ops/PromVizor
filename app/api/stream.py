@@ -214,7 +214,7 @@ def get_mode() -> dict:
         "mode_label": camera_mode.describe_mode(current.mode),
         "webcam_index": current.webcam_index,
         "demo_scenario": current.demo_scenario,
-        "available": list(camera_mode.ALL_MODES),
+        "available": list(camera_mode.SELECTABLE_MODES),
         "downtime_threshold_webcam_seconds": settings.downtime_threshold_webcam_seconds,
     }
 
@@ -321,12 +321,12 @@ async def set_mode(
     видео: старый закрыть, новый открыть. Проверяем, что новый
     источник открылся, иначе оператор увидел бы пустую камеру.
     """
-    if mode not in camera_mode.ALL_MODES:
+    if mode not in camera_mode.SELECTABLE_MODES:
         raise HTTPException(
             status_code=422,
             detail=(
-                f"Неизвестный режим: {mode}. "
-                f"Допустимые: {', '.join(camera_mode.ALL_MODES)}"
+                f"Недоступный режим: {mode}. "
+                f"Выбрать можно: {', '.join(camera_mode.SELECTABLE_MODES)}"
             ),
         )
 

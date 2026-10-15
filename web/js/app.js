@@ -211,7 +211,15 @@
   }
 
   /* ---------- старт ---------- */
-  function boot() {
+  async function boot() {
+    /* Вход проверяется ПЕРВЫМ, до отрисовки. Иначе на экране
+       мелькнул бы интерфейс с пустыми данными, а потом появилась бы
+       форма входа: оператор увидел бы то, что закрыто паролем. */
+    if (global.PV.auth) {
+      const entered = await global.PV.auth.ensure();
+      if (!entered) return; /* форма входа уже показана */
+    }
+
     // закрытие выпадающих списков по клику вне них и по Escape
     document.addEventListener("click", (e) => {
       if (!e.target.closest(".dd")) sections.closeDateMenus();

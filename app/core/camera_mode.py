@@ -29,11 +29,21 @@ from app.core.config import settings
 from app.core.env import env_str
 
 #: Режимы камеры, доступные в настройках.
+#:
+#: MODE_WEBCAM намеренно НЕ в списке для выбора в интерфейсе: камера
+#: физически у сервера, а на выставочном VPS её нет, и режим всегда
+#: показывал бы «нет сигнала». Камера пользователя подключается через
+#: MODE_BROWSER — кадр шлёт браузер, считает сервер. Сам класс
+#: WebcamSource и API с номером устройства остались: на машине без
+#: сервера (ноутбук разработчика) режим по-прежнему нужен и работает.
 MODE_DEMO = "demo"
 MODE_WEBCAM = "webcam"
 MODE_RTSP = "rtsp"
 MODE_SYNTHETIC = "synthetic"
 MODE_BROWSER = "browser"
+
+#: Режимы, которые можно выбрать в интерфейсе.
+SELECTABLE_MODES = (MODE_DEMO, MODE_SYNTHETIC, MODE_BROWSER, MODE_RTSP)
 
 ALL_MODES = (MODE_DEMO, MODE_WEBCAM, MODE_RTSP, MODE_SYNTHETIC, MODE_BROWSER)
 
