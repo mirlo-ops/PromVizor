@@ -60,7 +60,13 @@ def restart_pipeline(repo, mode: str, camera_index: int = 0, scenario: str = "")
 
     with _lock:
         if _pipeline is not None:
-            _pipeline.stop()
+            # До закрытия источника убеждаемся, что поток действительно
+            # вышел из обработки кадра. Иначе при медленном YOLO старый
+            # и новый pipeline на короткое время работают одновременно и
+            # публикуют кадры/статусы от разных режимов.
+            stopped = _pipeline.stop(timeout=10.0)
+            if not stopped:
+                raise RuntimeError("Предыдущий конвейер не остановился вовремя")
             _pipeline = None
 
         from app.core.config import settings
@@ -82,7 +88,7 @@ def stop_pipeline() -> None:
 
     with _lock:
         if _pipeline is not None:
-            _pipeline.stop()
+            _pipeline.stop(timeout=10.0)
             _pipeline = None
 
 

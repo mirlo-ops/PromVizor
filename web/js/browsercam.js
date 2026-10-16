@@ -57,6 +57,7 @@
     canvas: null,
     ctx: null,
     timer: null,
+    preview: null,
     sending: false,
     /* Флаг «запуск уже идёт». Без него два быстрых нажатия «Включить»
        запускали две передачи одновременно, и они дрались за камеру. */
@@ -248,16 +249,33 @@
       }
     }
 
-    const video = videoEl || document.createElement("video");
+    /* Не привязываем цикл передачи к элементу превью настроек: после
+       применения режима интерфейс перерисовывается и удаляет этот
+       элемент из документа. На некоторых браузерах отсоединённое видео
+       перестаёт декодировать кадры, поэтому отправляется только первый.
+       У захвата свой постоянно живущий video-элемент; превью остаётся
+       отдельным и может безопасно пересоздаваться интерфейсом. */
+    const video = document.createElement("video");
     video.muted = true;
     video.playsInline = true;
-    if (!videoEl) {
-      video.srcObject = state.stream;
-      try {
-        await video.play();
-      } catch (e) {
-        /* см. выше */
-      }
+    video.autoplay = true;
+    video.setAttribute("aria-hidden", "true");
+    video.tabIndex = -1;
+    /* Элемент должен оставаться в документе: некоторые браузеры
+       замедляют/останавливают декодирование у отсоединённого video. */
+    video.style.position = "fixed";
+    video.style.left = "-2px";
+    video.style.top = "0";
+    video.style.width = "1px";
+    video.style.height = "1px";
+    video.style.opacity = "0";
+    video.style.pointerEvents = "none";
+    video.srcObject = state.stream;
+    document.body.appendChild(video);
+    try {
+      await video.play();
+    } catch (e) {
+      /* см. выше: если автозапуск запрещён, цикл повторит попытку */
     }
 
     state.sending = true;
@@ -266,6 +284,7 @@
     state.sent = 0;
     state.lastError = "";
     state.video = video;
+    state.preview = videoEl || null;
 
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -368,6 +387,12 @@
       state.stream.getTracks().forEach((track) => track.stop());
       state.stream = null;
     }
+    if (state.video) {
+      state.video.srcObject = null;
+      state.video.remove();
+    }
+    if (state.preview) state.preview.srcObject = null;
+    if (state.preview) state.preview = null;
     document.removeEventListener("visibilitychange", onVisibility);
 
     const wasSending = state.sending;
@@ -375,6 +400,7 @@
     state.paused = false;
     state.starting = false;
     state.video = null;
+    state.preview = null;
     state.canvas = null;
     state.ctx = null;
 

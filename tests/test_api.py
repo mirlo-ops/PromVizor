@@ -97,6 +97,12 @@ class fixture:
 
     def __exit__(self, *exc) -> None:
         self.client.close()
+        # Некоторые тесты запрашивают /api/video/state или /cameras, что
+        # поднимает фоновый pipeline. Остановить его нужно до закрытия
+        # SQLite-соединения и временного каталога (особенно на Windows).
+        from app.api import runtime
+
+        runtime.stop_pipeline()
         self._routes.get_database._db = self._previous["db"]
         self.repo.db.close()
         for name in ("api_test.db", "api_test.db-wal", "api_test.db-shm"):

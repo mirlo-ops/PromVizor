@@ -195,15 +195,31 @@ class Pipeline:
             self.state.running = True
             self._thread.start()
 
-    def stop(self, timeout: float = 2.0) -> None:
-        """Просит конвейер завершиться и ждёт поток."""
+    def stop(self, timeout: float = 2.0) -> bool:
+        """Просит конвейер завершиться и ждёт поток.
+
+        Возвращает False, если обработчик не успел завершиться за timeout.
+        В этом случае не закрываем источник из-под работающего потока:
+        вызывающий код может сообщить о таймауте, а не запускать второй
+        конвейер поверх первого.
+        """
         self._stop.set()
         thread = self._thread
         if thread and thread.is_alive():
             thread.join(timeout=timeout)
+        if thread and thread.is_alive():
+            return False
         self._thread = None
         self.state.running = False
         self._close_source()
+        with self._frame_lock:
+            self._jpeg = b""
+            self._preview_tracks = []
+            self._preview_status = LineStatus.UNKNOWN
+        with self._preview_lock:
+            self._preview_jpeg = b""
+            self._preview_captured_at = 0.0
+        return True
 
     def _close_source(self) -> None:
         try:
@@ -218,6 +234,16 @@ class Pipeline:
     # Основной цикл
     # ------------------------------------------------------------------ #
     def _run(self) -> None:
+        try:
+            self._run_loop()
+        finally:
+            # Database хранит SQLite-соединения отдельно для каждого
+            # потока. Закрывать соединение pipeline из API-потока нельзя
+            # (check_same_thread), поэтому освобождаем его здесь, в том
+            # же потоке, где оно было создано.
+            self.repo.db.close_current_thread()
+
+    def _run_loop(self) -> None:
         while not self._stop.is_set():
             try:
                 if self.source is None:

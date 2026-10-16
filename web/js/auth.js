@@ -93,16 +93,21 @@
     "администратор системы.";
   /* Композиция входа — форма перекрывает промо-панель, как в референсе.
      Градиент и изображения отдаются из web/assets, поэтому пути здесь
-     относительно корня сайта: экран авторизации собирается динамически. */
+     относительно корня сайта: экран авторизации собирается динамически.
+
+     Оформление тёмное — те же цвета, что и у приложения (палитра из
+     презентации): #081C15 фон, #0F2C21 карточка, #52B788 и #D8F3DC
+     акценты. Светлая форма на тёмном фоне сайта выглядела бы как
+     чужое окно, вставленное в тёмный интерфейс. */
   const STYLE = `
   * { box-sizing: border-box; }
-  html { min-height: 100%; background: #1d5439; }
+  html { min-height: 100%; background: #081c15; }
   body {
     min-height: 100vh; min-height: 100dvh; margin: 0;
     display: grid; place-items: center;
     padding: clamp(18px, 4vw, 56px);
-    background: #1d5439 url("assets/gradient.png") center / cover no-repeat fixed;
-    color: #17251d;
+    background: #081c15 url("assets/gradient.png") center / cover no-repeat fixed;
+    color: #e8f3ec;
     font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   }
 
@@ -114,47 +119,37 @@
   .pv-promo {
     position: relative; isolation: isolate; overflow: hidden;
     flex: 1 1 auto; min-width: 0; min-height: 510px;
-    border: 1px solid rgba(255,255,255,.24);
+    border: 1px solid rgba(216,243,220,.16);
     border-radius: 24px;
-    background: #10271d;
-    box-shadow: 0 28px 70px rgba(8,28,21,.3);
+    background: #0e221b;
+    box-shadow: 0 28px 70px rgba(3,12,8,.55);
   }
   .pv-promo img {
     position: absolute; inset: 0;
     width: 100%; height: 100%;
     display: block; object-fit: cover; object-position: center;
   }
-  .pv-promo::after {
-    content: ""; position: absolute; inset: 45% 0 0; z-index: 0;
-    background: linear-gradient(180deg, transparent, rgba(5,21,14,.76));
-  }
-  .pv-promo-copy {
-    position: absolute; z-index: 1; right: 34px; bottom: 34px; left: 34px;
-    color: #fff; text-align: right;
-    font-size: clamp(22px, 3vw, 34px); line-height: 1.2; font-weight: 700;
-    letter-spacing: -.025em; text-shadow: 0 2px 16px rgba(0,0,0,.65);
-  }
   .pv-login {
     position: relative; z-index: 2; flex: 0 0 440px;
     margin-right: -118px; padding: 48px 46px 34px;
-    border: 1px solid rgba(255,255,255,.9); border-radius: 22px;
-    background: #fff;
-    box-shadow: 0 24px 64px rgba(8,28,21,.25);
+    border: 1px solid rgba(216,243,220,.14); border-radius: 22px;
+    background: #0f2c21;
+    box-shadow: 0 24px 64px rgba(3,12,8,.5);
   }
   .pv-eyebrow {
-    margin-bottom: 7px; color: #deddd3;
+    margin-bottom: 7px; color: #d8f3dc;
     font-family: "Century Gothic", "Avenir Next", "Montserrat", sans-serif;
     font-size: 17px; font-weight: 500; letter-spacing: .015em;
   }
-  .pv-login h1 { margin: 0 0 30px; color: #14251b; font-size: 29px; line-height: 1.2; font-weight: 700; letter-spacing: -.035em; }
+  .pv-login h1 { margin: 0 0 30px; color: #e8f3ec; font-size: 29px; line-height: 1.2; font-weight: 700; letter-spacing: -.035em; }
   .pv-field { position: relative; margin-bottom: 18px; }
-  .pv-field label { display: block; margin-bottom: 7px; color: #40564a; font-size: 13px; font-weight: 600; }
+  .pv-field label { display: block; margin-bottom: 7px; color: #b9cfc3; font-size: 13px; font-weight: 600; }
   .pv-field svg {
     position: absolute;
     left: 13px; top: 39px;
     width: 16px; height: 16px;
     fill: none;
-    stroke: #47825f;
+    stroke: #52b788;
     stroke-width: 1.8;
     stroke-linecap: round;
     stroke-linejoin: round;
@@ -163,18 +158,21 @@
   .pv-field input {
     width: 100%;
     min-height: 48px; padding: 11px 13px 11px 40px;
-    border-radius: 10px; border: 1px solid #d8e5dc;
-    background: #f8fbf9; color: #17251d; font: inherit; font-size: 14px;
+    border-radius: 10px; border: 1px solid #22352c;
+    background: #182e26; color: #e8f3ec; font: inherit; font-size: 14px;
   }
-  .pv-field input::placeholder { color: #73877a; }
+  .pv-field input::placeholder { color: #7d9689; }
+  /* Подсветка рамки при наведении, чтобы поле читалось границей, а не
+     только сменой фона: тёмный фон поля слишком близок к карточке. */
+  .pv-field input:hover { border-color: #2f4a3e; }
   .pv-field input:focus {
-    outline: 3px solid rgba(48,139,83,.22); outline-offset: 1px;
-    border-color: #31864f;
+    outline: 3px solid rgba(216,243,220,.16); outline-offset: 1px;
+    border-color: #52b788;
   }
   .pv-login .err {
     display: none; margin: 2px 0 14px; padding: 10px 12px;
-    border: 1px solid #f2c3c0; border-radius: 9px;
-    background: #fff2f1; color: #a12c26; font-size: 13px;
+    border: 1px solid rgba(255,107,107,.4); border-radius: 9px;
+    background: rgba(255,107,107,.12); color: #ffb0ad; font-size: 13px;
   }
   .pv-login .err.on { display: block; }
   .pv-actions {
@@ -187,32 +185,33 @@
     display: flex; align-items: center; justify-content: center; gap: 8px;
     transition: background .15s, opacity .15s, transform .15s;
   }
-  .pv-actions button:focus-visible { outline: 3px solid #17251d; outline-offset: 3px; }
+  .pv-actions button:focus-visible { outline: 3px solid #d8f3dc; outline-offset: 3px; }
   .pv-actions button:active { transform: translateY(1px); }
   .pv-actions button svg {
     width: 15px; height: 15px;
     fill: none; stroke: currentColor; stroke-width: 1.9;
     stroke-linecap: round; stroke-linejoin: round;
   }
-  .pv-btn-primary { background: #2e8150; color: #fff; }
-  .pv-btn-primary:hover { background: #236b40; }
-  .pv-btn-primary:disabled { opacity: .6; cursor: default; }
+  /* Светло-зелёная заливка с тёмным текстом: на тёмной форме это
+     единственная кнопка, которая сразу видна глазом. */
+  .pv-btn-primary { background: #d8f3dc; color: #081c15; }
+  .pv-btn-primary:hover { background: #b9e5c4; }
+  .pv-btn-primary:disabled { opacity: .55; cursor: default; }
   .pv-btn-help {
-    background: #edf5ef; color: #285d3c;
-    border: 1px solid #d0e2d5 !important;
+    background: #182e26; color: #b9cfc3;
+    border: 1px solid #2c5341 !important;
   }
-  .pv-btn-help:hover { background: #e0eee4; }
+  .pv-btn-help:hover { background: #1e3830; color: #e8f3ec; }
   .pv-login .note {
     margin: 20px 0 0; padding-top: 15px;
-    border-top: 1px solid #e8eee9;
-    font-size: 12px; line-height: 1.55; color: #5f7265;
+    border-top: 1px solid #1a2c25;
+    font-size: 12px; line-height: 1.55; color: #8fa89a;
   }
   @media (max-width: 760px) {
     body { display: block; padding: 24px 16px; background-attachment: scroll; }
     .pv-auth-layout { width: min(500px, 100%); min-height: 0; margin: 0 auto; flex-direction: column; align-items: stretch; }
     .pv-login { flex: none; width: 100%; margin: 0 0 -38px; padding: 34px clamp(22px, 7vw, 42px) 28px; }
     .pv-promo { flex: none; width: 100%; min-height: 250px; padding-top: 38px; border-radius: 20px; }
-    .pv-promo-copy { right: 20px; bottom: 20px; left: 20px; font-size: 24px; }
   }
   @media (max-width: 420px) {
     .pv-login { padding: 30px 22px 24px; }
@@ -220,7 +219,6 @@
     .pv-actions { flex-direction: column; align-items: stretch; }
     .pv-actions button { width: 100%; }
     .pv-promo { min-height: 210px; }
-    .pv-promo-copy { font-size: 21px; }
   }`;
 
   function show(errorText) {
@@ -259,7 +257,6 @@
       "</form>" +
       '<aside class="pv-promo" aria-label="PromVizor — система контроля персонала">' +
       '<img src="assets/logo_na_fone.png" alt="Логотип PromVizor на фоне декоративной иллюстрации">' +
-      '<p class="pv-promo-copy">Total control over employees</p>' +
       "</aside></main></body>";
 
     const form = document.getElementById("pvAuthForm");

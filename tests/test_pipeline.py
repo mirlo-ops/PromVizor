@@ -203,6 +203,39 @@ def test_mode_roundtrip():
             camera_mode.SETTINGS_FILE = original
 
 
+def test_mode_save_creates_parent_directory():
+    """Новая установка сохраняет режим в каталоге данных, даже если его нет."""
+    with tempfile.TemporaryDirectory() as tmp:
+        original = camera_mode.SETTINGS_FILE
+        target = Path(tmp) / "data" / "nested" / "camera_mode.json"
+        camera_mode.SETTINGS_FILE = target
+        try:
+            saved = camera_mode.save(camera_mode.CameraMode(mode="browser"))
+            assert saved.mode == "browser"
+            assert camera_mode.load().mode == "browser"
+            assert json.loads(target.read_text(encoding="utf-8"))["mode"] == "browser"
+        finally:
+            camera_mode.SETTINGS_FILE = original
+
+
+def test_mode_save_reports_write_failure():
+    """Нельзя подтвердить переключение, если настройки реально не записаны."""
+    with tempfile.TemporaryDirectory() as tmp:
+        original = camera_mode.SETTINGS_FILE
+        # Путь каталога вместо файла гарантированно не может быть заменён файлом.
+        target = Path(tmp) / "is-a-directory"
+        target.mkdir()
+        camera_mode.SETTINGS_FILE = target
+        try:
+            try:
+                camera_mode.save(camera_mode.CameraMode(mode="browser"))
+                raise AssertionError("ошибка сохранения должна быть видна вызывающему коду")
+            except OSError:
+                pass
+        finally:
+            camera_mode.SETTINGS_FILE = original
+
+
 def test_mode_rejects_unknown():
     with tempfile.TemporaryDirectory() as tmp:
         original = camera_mode.SETTINGS_FILE

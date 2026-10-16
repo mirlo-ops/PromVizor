@@ -21,12 +21,12 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
 from app.core.config import settings
-from app.core.env import env_str
 
 #: Режимы камеры, доступные в настройках.
 #:
@@ -47,8 +47,27 @@ SELECTABLE_MODES = (MODE_DEMO, MODE_SYNTHETIC, MODE_BROWSER, MODE_RTSP)
 
 ALL_MODES = (MODE_DEMO, MODE_WEBCAM, MODE_RTSP, MODE_SYNTHETIC, MODE_BROWSER)
 
-#: Куда сохраняется выбор
-SETTINGS_FILE = Path("camera_mode.json")
+def _default_settings_file() -> Path:
+    """Файл выбора рядом с данными приложения, а не в рабочем каталоге.
+
+    Сервис может запускаться из разных каталогов (например, systemd или
+    контейнер). Относительный ``camera_mode.json`` тогда незаметно
+    «терялся» после перезапуска, хотя API подтверждал переключение.
+    Путь можно явно переопределить для установки через окружение.
+    """
+    configured = os.environ.get("CAMERA_MODE_FILE", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+
+    database = Path(settings.database_path).expanduser()
+    if not database.is_absolute():
+        database = Path.cwd() / database
+    return database.resolve().parent / "camera_mode.json"
+
+
+#: Куда сохраняется выбор. Оставлено публичным для тестов и интеграций,
+#: которым нужно задать отдельный файл.
+SETTINGS_FILE = _default_settings_file()
 
 #: Откуда берётся режим, если файл ещё не создан
 DEFAULT_MODE = MODE_SYNTHETIC
@@ -74,6 +93,43 @@ class CameraMode:
 
 def _settings_path() -> Path:
     return SETTINGS_FILE
+
+
+def _read_settings_path() -> Path:
+    """Поддерживает файл из старой установки при переносе пути хранения."""
+    path = _settings_path()
+    # Явно заданный путь (включая тесты и отдельные установки) не должен
+    # незаметно подменяться старым файлом из текущего каталога.
+    if os.environ.get("CAMERA_MODE_FILE", "").strip():
+        return path
+    legacy = Path("camera_mode.json")
+    try:
+        if path.resolve() != _default_settings_file().resolve():
+            return path
+        same_path = path.resolve() == legacy.resolve()
+        if not same_path and not path.exists() and legacy.is_file():
+            return legacy
+    except OSError:
+        pass
+    return path
+
+
+def _write_settings(path: Path, mode: CameraMode) -> None:
+    """Атомарно сохраняет настройки, не оставляя частичный JSON."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(mode.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    except OSError:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def _from_environment() -> Optional[CameraMode]:
@@ -117,7 +173,7 @@ def load() -> CameraMode:
     if forced is not None:
         return forced
 
-    path = _settings_path()
+    path = _read_settings_path()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -151,14 +207,7 @@ def save(mode: CameraMode) -> CameraMode:
         # иначе интерфейс показывал бы не то, что на самом деле.
         return forced
 
-    try:
-        _settings_path().write_text(
-            json.dumps(mode.to_dict(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-    except OSError:
-        # Не смогли сохранить — работаем с тем, что есть
-        pass
+    _write_settings(_settings_path(), mode)
     return mode
 
 

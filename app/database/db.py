@@ -95,6 +95,11 @@ class Database:
         conn = sqlite3.connect(
             _MEMORY_URI if in_memory else str(Path(self.path).expanduser()),
             uri=in_memory,
+            # Соединения по-прежнему используются одним потоком каждый,
+            # но Database.close() обязан уметь освободить реестр всех
+            # соединений из потока shutdown/теста. sqlite3 по умолчанию
+            # запрещает даже close() не из потока-владельца.
+            check_same_thread=False,
             timeout=self.timeout,
             # Автокоммит. По умолчанию sqlite3 в Python сам открывает
             # транзакцию перед INSERT/UPDATE и НЕ коммитит её — данные

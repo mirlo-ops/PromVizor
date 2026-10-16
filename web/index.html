@@ -4,11 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ПромВизор — Контроль персонала</title>
-<meta name="theme-color" content="#f7f9f9">
+<meta name="theme-color" content="#081c15">
 <script>
-  // Пользовательский выбор темы временно отключён: всегда стартуем
-  // в предсказуемой светлой палитре, не затрагивая остальные настройки.
-  document.documentElement.setAttribute('data-theme', 'light');
+  // Пользовательский выбор темы отключён: интерфейс всегда тёмный.
+  //
+  // Атрибут ставится здесь, до подключения стилей, иначе на загрузке
+  // мелькает светлый фон — заметно, особенно на проекторе.
+  //
+  // Сам механизм переключения не тронут: applyTheme() в sections.js и
+  // обе палитры в styles.css на месте, вернуть выбор темы — одна
+  // строка.
+  document.documentElement.setAttribute('data-theme', 'dark');
 </script>
 <link rel="stylesheet" href="css/styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128230;</text></svg>">

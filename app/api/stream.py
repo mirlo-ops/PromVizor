@@ -281,13 +281,19 @@ async def set_demo_scenario(
         )
 
     current = camera_mode.load()
-    applied = camera_mode.save(
-        camera_mode.CameraMode(
-            mode=camera_mode.MODE_DEMO,
-            webcam_index=current.webcam_index,
-            demo_scenario=scenario,
+    try:
+        applied = camera_mode.save(
+            camera_mode.CameraMode(
+                mode=camera_mode.MODE_DEMO,
+                webcam_index=current.webcam_index,
+                demo_scenario=scenario,
+            )
         )
-    )
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Не удалось сохранить режим камеры: {exc}"
+        ) from exc
+    browsercam.reset()
 
     from app.api.runtime import restart_pipeline
 
@@ -325,7 +331,7 @@ async def set_mode(
         raise HTTPException(
             status_code=422,
             detail=(
-                f"Недоступный режим: {mode}. "
+                f"Неизвестный режим: {mode}. "
                 f"Выбрать можно: {', '.join(camera_mode.SELECTABLE_MODES)}"
             ),
         )
@@ -333,7 +339,17 @@ async def set_mode(
     requested = camera_mode.CameraMode(
         mode=mode, webcam_index=webcam_index, demo_scenario=demo_scenario
     )
-    applied = camera_mode.save(requested)
+    try:
+        applied = camera_mode.save(requested)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Не удалось сохранить режим камеры: {exc}"
+        ) from exc
+
+    # Не переносим последний кадр из предыдущего запуска в новый режим.
+    # Если выбран браузер, его вкладка пришлёт следующий актуальный кадр;
+    # если другой режим — старый кадр больше не считается источником.
+    browsercam.reset()
 
     from app.api.runtime import restart_pipeline
 
@@ -343,9 +359,12 @@ async def set_mode(
         camera_index=applied.webcam_index,
         scenario=applied.demo_scenario,
     )
-    # Даём конвейеру секунду открыть источник: сразу после ответа
-    # state ещё показывал бы состояние прежнего режима
-    await asyncio.get_running_loop().run_in_executor(None, _wait_for_source, pipeline)
+    # Не ждём обработанный кадр: в режиме browser он не появится, пока
+    # пользователь не разрешит камеру после ответа API. Ожидание здесь
+    # добавляло фиксированные 2 секунды к каждому переключению и
+    # блокировало запуск передачи в браузере. Новый конвейер уже создан,
+    # поэтому его snapshot содержит выбранный режим; поток отдаст заглушку,
+    # пока источник подготавливает первый кадр.
 
     return {
         "mode": applied.mode,

@@ -75,13 +75,16 @@
       show_loss: true,
       retention_days: 90,
       threshold_minutes: 5,
-      theme: "light",
+      theme: "dark",
     };
     try {
       const saved = JSON.parse(localStorage.getItem("pv_settings") || "{}");
-      // Старое значение темы не должно влиять на оформление; прочие
-      // сохранённые настройки оставляем без изменений.
-      saved.theme = "light";
+      // Сохранённое значение темы не влияет на оформление: выбор темы
+      // отключён, интерфейс всегда тёмный. Иначе старая «light» из
+      // localStorage возвращала бы прежнее оформление, хотя
+      // переключателя в настройках уже нет.
+      // Прочие сохранённые настройки оставляем без изменений.
+      saved.theme = "dark";
       return Object.assign(def, saved);
     } catch (e) {
       return def;
@@ -106,13 +109,20 @@
 
   /* Применяет тему к документу.
      Атрибут ставится на <html>, чтобы тема действовала до отрисовки
-     и не мигала светлой при загрузке страницы. */
+     и не мигала при загрузке страницы.
+
+     Сейчас интерфейс всегда тёмный и выбора темы нет, поэтому
+     applyTheme() зовут с фиксированным значением. Функция оставлена
+     как есть: обе палитры в styles.css живы, и вернуть переключатель
+     — починка одной строки. */
   function applyTheme(theme) {
     const t = theme === "dark" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", t);
     state.settings.theme = t;
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", t === "dark" ? "#0f1519" : "#f7f9f9");
+    // Цвет панели браузера: тёмно-зелёный из презентации, а не
+    // серо-синий #0f1519, оставшийся от прошлой палитры.
+    if (meta) meta.setAttribute("content", t === "dark" ? "#081c15" : "#f7f9f9");
   }
 
   /* ============================================================
