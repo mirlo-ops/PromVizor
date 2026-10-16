@@ -125,6 +125,11 @@ def _():
     assert api_auth.is_public("/") is True
     assert api_auth.is_public("/js/auth.js") is True
     assert api_auth.is_public("/css/styles.css") is True
+    # Логотип и фон окна входа лежат в assets/. Без пароля они должны
+    # отдаваться: форма входа их рисует, и без них она осталась бы
+    # без логотипа — ровно то, что было видно на демонстрации.
+    assert api_auth.is_public("/assets/logo.png") is True
+    assert api_auth.is_public("/assets/login-bg.svg") is True
 
     for closed in ("/api/status", "/api/events", "/api/video/stream"):
         assert api_auth.is_public(closed) is False, (

@@ -164,6 +164,16 @@ class Pipeline:
         #: Как часто писать снимок состояния в базу, секунд
         self.status_interval = 2.0
 
+        # --- скорость детекции человека ---
+        #: Как часто запускать YOLO: 1 — на каждом кадре (медленно,
+        #: но точно), 3 — раз в три кадра. См. _detect_sparse.
+        self.detect_every = int(getattr(settings, "detect_every_frames", 1) or 1)
+        #: Прошлый результат детекции — переиспользуется между
+        #: запусками YOLO, чтобы трек продолжался без новой детекции.
+        self._last_detections: Optional[List[Any]] = None
+        #: Сколько кадров прошло с последнего запуска YOLO
+        self._frames_since_detect = 0
+
     # ------------------------------------------------------------------ #
     # Запуск и остановка
     # ------------------------------------------------------------------ #
@@ -317,6 +327,11 @@ class Pipeline:
         self.vision = VisionPipeline()
         self.detector = PersonDetector(roi=self.roi)
         self.tracker.reset()
+        # Кэш детекций принадлежал прежнему источнику: у другого
+        # разрешения и другой сцены прошлые боксы бессмысленны, и на
+        # первом же кадре человек «появился бы» в чужом месте.
+        self._last_detections = None
+        self._frames_since_detect = 0
 
         mode = self.state.mode
         # Порог подтверждения простоя зависит от режима: для веб-камеры
@@ -417,7 +432,7 @@ class Pipeline:
         # с браузера» оставалась на экране навсегда, хотя видео шло.
         self._clear_transient_error()
 
-        detections = self._detect(frame)
+        detections = self._detect_sparse(frame)
         tracks = self.tracker.update(detections)
 
         person_present = any(self._box_in_roi(t.box) for t in tracks)
@@ -461,6 +476,45 @@ class Pipeline:
         detection = self.detector.detect(frame)
         return detection.detections
 
+    # ------------------------------------------------------------------ #
+    # Скорость: детекция человека не каждый кадр
+    # ------------------------------------------------------------------ #
+    def _detect_sparse(self, frame) -> List[Any]:
+        """Детектирует человека через DETECT_EVERY кадров, между ними
+        отдаёт прошлый результат.
+
+        Почему так. YOLO — единственная дорогая операция в конвейере:
+        на сервере yolo26n @ 960 даёт около секунды на кадр, а сам
+        детектор движения (сравнение соседних кадров) стоит единицы
+        миллисекунд. Из-за одного YOLO окно камеры шло примерно один
+        кадр в секунду — картинка дёргалась, и складывалось впечатление,
+        будто система «тормозит».
+
+        Почему это не вредит смыслу. Простой считается по стенным
+        часам, а не по числу кадров, поэтому пропуск обнаружения не
+        растягивает таймер: человек ушёл — простой пойдёт по часам
+        точно так же. Детектор движения, который ловит саму
+        остановку линии, продолжает работать на КАЖДОМ кадре.
+
+        Что действительно меняется: между детекциями рамка человека
+        берётся из прошлого результата и двигается по треку, а не
+        по новому. Для Alpha это приемлемая цена за плавную картинку.
+        """
+        if self.state.mode == "synthetic":
+            # Синтетика знает свой бокс без YOLO — там считать нечего.
+            return self._detect(frame)
+
+        every = max(1, int(self.detect_every))
+        self._frames_since_detect += 1
+
+        if self._last_detections is not None and self._frames_since_detect < every:
+            return self._last_detections
+
+        detections = self._detect(frame)
+        self._last_detections = detections
+        self._frames_since_detect = 0
+        return detections
+
     def _box_in_roi(self, box) -> bool:
         """В контролируемой ли человек зоне.
 
@@ -496,12 +550,49 @@ class Pipeline:
         if self.state.mode in ("webcam", "synthetic", camera_mode.MODE_BROWSER) and not person_present:
             line_status = LineStatus.STOPPED
 
+        # --- Сценарии 2 и 4: линия стоит по сценарию ---
+        #
+        # В роликах «линия остановилась» и «линия стоит + рабочий ушёл»
+        # конвейер нарисован, но НЕ ДВИГАЕТСЯ: между кадрами картинка
+        # не меняется, и детектор движения честно видит «изменений нет».
+        # Значит он правильно отвечает WORKING, а по смыслу сценария
+        # линия стоит. На демонстрации это выглядит как ошибка системы:
+        # на экране «линия остановилась», а в отчёте WORKING.
+        #
+        # Считать остановку по движению конвейера здесь нельзя —
+        # конвейера в кадре нет, движение создаёт сам рабочий, а он в
+        # этих сценариях как раз уходит. Поэтому для ДЕМО-сценариев
+        # состояние линии задаётся явно: так оно и задумано роликом.
+        #
+        # На настоящую камеру это не распространяется: там движение
+        # настоящее, и решает детектор.
+        forced = self._forced_line_status()
+        if forced is not None:
+            line_status = forced
+
         return VisionResult(
             person_present=person_present,
             line_status=line_status,
             confidence=0.0,
             motion=motion_result.motion,
         )
+
+    #: Сценарии, где линия стоит по замыслу ролика. Ключи — имена
+    #: сценариев из app/core/config.py.
+    SCENARIOS_LINE_STOPPED = ("stopped", "stopped_no_person")
+
+    def _forced_line_status(self) -> Optional[LineStatus]:
+        """Состояние линии, заданное сценарием. None — решает детектор.
+
+        Работает только в демо-режиме: настоящая камера и камера из
+        браузера определяются движением, и подменять им значение
+        означало бы врать оператору.
+        """
+        if self.state.mode != camera_mode.MODE_DEMO:
+            return None
+        if (self.scenario or "") not in self.SCENARIOS_LINE_STOPPED:
+            return None
+        return LineStatus.STOPPED
 
     def _write_state(self, events, status: SystemStatus) -> None:
         """Пишет события и снимок состояния в базу."""

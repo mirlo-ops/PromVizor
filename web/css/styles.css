@@ -2,146 +2,177 @@
    ПромВизор — Dashboard
    ============================================================ */
 
+/* ============================================================
+   ПромВизор — Dashboard
+
+   ПАЛИТРА ВЗЯТА ИЗ ПРЕЗЕНТАЦИИ, а не выдумана.
+
+   Цвета взяты прямо из файла презентации (PromVizor.pptx) — тот же
+   источник, из которого взяты и слайды, и логотип. Иначе на экране
+   в браузере и на слайде были бы разные оттенки зелёного, и это
+   видно при первом же сравнении.
+
+   Что оттуда и сколько раз встречается:
+
+     #D8F3DC  99 раз  светло-зелёный: акценты на тёмном фоне
+     #52B788  65 раз  основной зелёный: логотип, кнопки, акцент
+     #0E221B  12 раз  почти чёрный с зелёным: тёмный фон
+     #081C15   8 раз  ещё темнее: боковая панель
+     #273C33   8 раз  серо-зелёный: границы на тёмном
+     #FF6B6B   1 раз  красный акцент: простой (единственный в файле)
+
+   Отсюда и вся схема: зелёный — главный цвет, тёмный — «спокойный»,
+   красный — только простой, чтобы взгляд сразу цеплялся за него.
+   ============================================================ */
+
 :root{
   /* поверхности */
-  --bg:#f7f9f9;
-  --sidebar-bg:#eef2f4;
+  --bg:#f4f8f5;
+  --sidebar-bg:#e9f2ec;
   --card:#ffffff;
-  --card-2:#fbfcfc;
-  --card-hover:#fafcfc;
-  --row-border:#f1f5f7;
+  --card-2:#fbfdfc;
+  --card-hover:#f7fbf8;
+  --row-border:#eaf2ed;
 
   /* текст */
-  --ink:#1b2530;
-  --ink-2:#4a5a6a;
-  --muted:#5f6c77;
+  --ink:#0e221b;
+  --ink-2:#3f5a4e;
+  --muted:#5c7568;
   --on-accent:#ffffff;
-  --disabled:#ccd4d9;
+  --disabled:#c4d4cc;
 
   /* границы и заливки */
-  --line:#e6ecef;
-  --border:#e2e9ec;
-  --border-2:#e0e7ea;
-  --fill:#eef2f4;
-  --fill-2:#f2f6f8;
-  --hover:#f2f6f7;
-  --hover-2:#e4eaed;
-  --switch-off:#dde4e8;
+  --line:#e2ede7;
+  --border:#dceae2;
+  --border-2:#d8e8df;
+  --fill:#eef5f1;
+  --fill-2:#f1f7f3;
+  --hover:#eef6f1;
+  --hover-2:#e0eee6;
+  --switch-off:#d5e4dc;
 
-  /* акценты */
-  --green:#17743f;
-  --green-2:#2aa35f;
-  --green-dark:#126336;
-  --green-soft:#e8f5ec;
-  --green-border:#bfe3cc;
-  --red:#ef4a5c;
-  --red-soft:#fdeaec;
-  --red-border:#f8ccd2;
-  --red-text:#ad4652;
-  --amber:#e8a33d;
-  --amber-soft:#fdf3e3;
-  --present:#5f6c77;
-  --tag-idle:#5f6c77;
-  --weekend:#c2ccd2;
+  /* акценты — зелёный из презентации */
+  --green:#265a43;
+  --green-2:#52b788;
+  --green-dark:#0e221b;
+  --green-soft:#e7f4ec;
+  --green-border:#b6dcc6;
+  /* Простой: единственный красный в презентации, #FF6B6B. Он
+     заметно холоднее прежнего алого — и это к лучшему: на зелёном
+     фоне он читается как тревога, а не как «новогодняя ёлка». */
+  --red:#ff6b6b;
+  --red-soft:#fdeaea;
+  --red-border:#f6c9c9;
+  --red-text:#c74848;
+  --amber:#c98a2e;
+  --amber-soft:#fdf3e0;
+  --present:#52b788;
+  --tag-idle:#5c7568;
+  --weekend:#c2d6cb;
 
   /* точечные индикаторы */
-  --dot-green:#35c26a;
-  --dot-gray:#c9d3da;
-  --success-text:#4ade80;
-  --danger-text:#ff6b7a;
+  --dot-green:#52b788;
+  --dot-gray:#c2d6cb;
+  --success-text:#2f7f57;
+  --danger-text:#ff6b6b;
 
   /* прочее */
-  --scroll-thumb:#cfd9de;
-  --scroll-thumb-hover:#b3c1c9;
+  --scroll-thumb:#c4d9cd;
+  --scroll-thumb-hover:#a8c6b5;
   --radius:14px;
-  --shadow:0 1px 2px rgba(24,40,56,.05), 0 6px 18px rgba(24,40,56,.05);
-  --shadow-pop:0 12px 32px rgba(24,40,56,.14);
+  --shadow:0 1px 2px rgba(14,34,27,.05), 0 6px 18px rgba(14,34,27,.06);
+  --shadow-pop:0 12px 32px rgba(14,34,27,.16);
   --sidebar-w:272px;
 
   /* видеоплеер и полоса активности */
-  --video-bg:#0e1418;
-  --video-empty:#8fa3ae;
-  --video-stripe-a:#111a1f;
-  --video-stripe-b:#0d1519;
-  --ov-chip-bg:rgba(18,26,32,.66);
+  --video-bg:#0b1a13;
+  --video-empty:#7b9a8b;
+  --video-stripe-a:#0f2119;
+  --video-stripe-b:#0a1811;
+  --ov-chip-bg:rgba(10,26,19,.66);
   --ov-chip-text:#ffffff;
-  --seg-present:#d8e0e6;
-  --focus-ring:rgba(42,163,95,.1);
-  --toast-shadow:rgba(0,0,0,.22);
-  --switch-knob-shadow:rgba(0,0,0,.2);
-  --tip-shadow:0 8px 20px rgba(239,74,92,.3);
-  --toast-bg:#1b2530;
-  --toast-text:#ffffff;
-  --tip-text:#1a0c0e;
+  --seg-present:#cfe3d7;
+  --focus-ring:rgba(82,183,136,.18);
+  --toast-shadow:rgba(14,34,27,.24);
+  --switch-knob-shadow:rgba(14,34,27,.2);
+  --tip-shadow:0 8px 20px rgba(255,107,107,.3);
+  --toast-bg:#0e221b;
+  --toast-text:#e8f3ec;
+  --tip-text:#2a0f0f;
   --knob:#ffffff;
   --on-solid:#ffffff;
 }
 
-/* ================= ТЁМНАЯ ТЕМА ================= */
+/* ================= ТЁМНАЯ ТЕМА =================
+   Фоны — тёмно-зелёные из презентации (#081C15, #0E221B, #0F2C21),
+   а не серо-синие: на демонстрации тёмная тема стоит по умолчанию,
+   и она должна выглядеть частью того же фирменного стиля. */
 [data-theme="dark"]{
-  --bg:#0f1519;
-  --sidebar-bg:#151d23;
-  --card:#1a232b;
-  --card-2:#1e2830;
-  --card-hover:#212b34;
-  --row-border:#26313a;
+  --bg:#081c15;
+  --sidebar-bg:#0e221b;
+  --card:#0f2c21;
+  --card-2:#112e24;
+  --card-hover:#152f26;
+  --row-border:#1a2c25;
 
-  --ink:#e6edf3;
-  --ink-2:#b3c0cc;
-  --muted:#93a1ad;
-  --on-accent:#0f1519;
-  --disabled:#5a6874;
+  --ink:#e8f3ec;
+  --ink-2:#b9cfc3;
+  --muted:#8fa89a;
+  --on-accent:#081c15;
+  --disabled:#4a5c53;
 
-  --line:#2b363f;
-  --border:#2b363f;
-  --border-2:#2b363f;
-  --fill:#222d36;
-  --fill-2:#232e37;
-  --hover:#222d36;
-  --hover-2:#2b3742;
-  --switch-off:#3a464f;
+  --line:#22352c;
+  --border:#22352c;
+  --border-2:#233a30;
+  --fill:#182e26;
+  --fill-2:#1a3129;
+  --hover:#182e26;
+  --hover-2:#223b31;
+  --switch-off:#334a40;
 
-  --green:#3fbf72;
-  --green-2:#33b268;
-  --green-dark:#2fa862;
-  --green-soft:#17301f;
-  --green-border:#2c5b3c;
-  --red:#f2606f;
-  --red-soft:#33191e;
-  --red-border:#5d2831;
-  --red-text:#f77b87;
-  --amber:#eaa94f;
-  --amber-soft:#33291a;
-  --present:#93a1ad;
-  --tag-idle:#a3b1bd;
-  --weekend:#6b7a87;
+  /* Светло-зелёный #D8F3DC из презентации — главный акцент тёмной
+     темы: на почти чёрном фоне он читается лучше, чем #52B788. */
+  --green:#d8f3dc;
+  --green-2:#52b788;
+  --green-dark:#a9dcbd;
+  --green-soft:#153026;
+  --green-border:#2c5341;
+  --red:#ff6b6b;
+  --red-soft:#3a1c1c;
+  --red-border:#5c2b2b;
+  --red-text:#ff9d9d;
+  --amber:#e0b463;
+  --amber-soft:#372e19;
+  --present:#8fa89a;
+  --tag-idle:#7f9c8d;
+  --weekend:#3f594c;
 
-  --dot-green:#3fbf72;
-  --dot-gray:#55636e;
-  --success-text:#4ade80;
-  --danger-text:#ff8089;
+  --dot-green:#52b788;
+  --dot-gray:#3d5a4b;
+  --success-text:#7fd6a4;
+  --danger-text:#ff8f8f;
 
-  --scroll-thumb:#3a4650;
-  --scroll-thumb-hover:#4a5862;
-  --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.34);
-  --shadow-pop:0 12px 32px rgba(0,0,0,.5);
+  --scroll-thumb:#2e463a;
+  --scroll-thumb-hover:#3d5b4c;
+  --shadow:0 1px 2px rgba(0,0,0,.34), 0 6px 18px rgba(0,0,0,.38);
+  --shadow-pop:0 12px 32px rgba(0,0,0,.54);
 
-  --video-bg:#080c0f;
-  --video-empty:#7b8b96;
-  --video-stripe-a:#0b1013;
-  --video-stripe-b:#080c0f;
-  --ov-chip-bg:rgba(6,10,12,.78);
-  --ov-chip-text:#f2f6f9;
-  --seg-present:#3a4650;
-  --focus-ring:rgba(63,191,114,.18);
+  --video-bg:#050f0b;
+  --video-empty:#7b9a8b;
+  --video-stripe-a:#08140e;
+  --video-stripe-b:#060f0a;
+  --ov-chip-bg:rgba(4,12,8,.78);
+  --ov-chip-text:#e8f3ec;
+  --seg-present:#2c4739;
+  --focus-ring:rgba(82,183,136,.22);
   --toast-shadow:rgba(0,0,0,.5);
   --switch-knob-shadow:rgba(0,0,0,.45);
   --tip-shadow:0 8px 20px rgba(0,0,0,.45);
-  --toast-bg:#e8eef3;
-  --toast-text:#131b22;
-  --tip-text:#1a0c0e;
-  --knob:#f4f8fb;
-  --on-solid:#0d1418;
+  --toast-bg:#e7f4ec;
+  --toast-text:#0e221b;
+  --tip-text:#2a0f0f;
+  --knob:#ffffff;
+  --on-solid:#ffffff;
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
@@ -176,11 +207,14 @@ svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;stroke
   border-radius:12px;cursor:pointer;flex:none;transition:background .15s}
 .brand:hover{background:var(--hover-2)}
 .brand:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+/* Логотип — картинка, а не значок: та монограмма уже нарисована и
+   имеет свои пропорции. Подгоняем по высоте, ширину браузер
+   посчитает сам — иначе на широком знаке появляются пустые поля. */
 .brand-logo{
-  width:38px;height:38px;flex:none;color:var(--ink);
-  display:grid;place-items:center;
+  height:38px;flex:none;
+  display:flex;align-items:center;
 }
-.brand-logo svg{width:34px;height:34px}
+.brand-logo img{height:100%;width:auto;display:block}
 .brand-text{display:flex;flex-direction:column;line-height:1.25}
 .brand-text strong{font-size:21px;font-weight:650;letter-spacing:-.2px}
 .brand-text small{font-size:13px;color:var(--muted)}
@@ -779,12 +813,15 @@ svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;stroke
 .theme-swatch i:nth-child(1){width:45%}
 .theme-swatch i:nth-child(2){width:100%;height:14px;border-radius:4px}
 .theme-swatch i:nth-child(3){width:70%}
-.theme-swatch-light{background:#f7f9f9}
-.theme-swatch-light i{background:#c9d3da}
-.theme-swatch-light i:nth-child(2){background:#ffffff;border:1px solid #e6ecef}
-.theme-swatch-dark{background:#0f1519;border-color:#2b363f}
-.theme-swatch-dark i{background:#3a4650}
-.theme-swatch-dark i:nth-child(2){background:#1a232b;border:1px solid #2b363f}
+/* Превью берёт цвета из палитры презентации, а не свои: раньше здесь
+   были серо-голубые оттенки, и переключатель тем показывал одну
+   палитру, а интерфейс — другую. */
+.theme-swatch-light{background:#f4f8f5}
+.theme-swatch-light i{background:#c2d6cb}
+.theme-swatch-light i:nth-child(2){background:#ffffff;border:1px solid #e2ede7}
+.theme-swatch-dark{background:#081c15;border-color:#22352c}
+.theme-swatch-dark i{background:#334a40}
+.theme-swatch-dark i:nth-child(2){background:#0f2c21;border:1px solid #22352c}
 
 .set-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
 .set-card{padding:22px 24px}

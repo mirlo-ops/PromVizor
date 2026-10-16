@@ -109,6 +109,17 @@ class Settings:
     # Классы COCO, которые считаем рабочими. 0 = person.
     yolo_person_classes: tuple = (0,)
 
+    # --- Частота детекции человека ---
+    # YOLO — единственная дорогая операция в конвейере, и она шла на
+    # КАЖДОМ кадре. На сервере (yolo26n @ 960) это около секунды на
+    # кадр, из-за чего окно камеры шло дёргано, примерно 1 к/с.
+    # Между детекциями берётся прошлый результат, а детектор
+    # движения продолжает работать на каждом кадре — простои он и
+    # так ловит. Таймер простоя считает по часам, а не по кадрам,
+    # поэтому точность событий не страдает.
+    # 1 = на каждом кадре (медленно, но точно), 3 = раз в три кадра.
+    detect_every_frames: int = 3
+
     # --- Motion Detection (Этап 2) ---
     # Детектор считает движение по кадрам ВНУТРИ ROI.
     motion_history_size: int = 30          # сколько последних кадров копится
@@ -156,6 +167,7 @@ def _from_env() -> "Settings":
         yolo_model=env_str("YOLO_MODEL", "yolo26n.pt"),
         yolo_imgsz=env_int("YOLO_IMGSZ", 960),
         yolo_confidence=env_float("YOLO_CONFIDENCE", 0.35),
+        detect_every_frames=env_int("DETECT_EVERY_FRAMES", 3),
         # --- Источники ---
         default_source=env_str("DEFAULT_SOURCE", "demo"),
         webcam_index=env_int("WEBCAM_INDEX", 0),
