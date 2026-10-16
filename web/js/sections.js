@@ -79,7 +79,9 @@
     };
     try {
       const saved = JSON.parse(localStorage.getItem("pv_settings") || "{}");
-      if (saved.theme !== "light" && saved.theme !== "dark") saved.theme = "light";
+      // Старое значение темы не должно влиять на оформление; прочие
+      // сохранённые настройки оставляем без изменений.
+      saved.theme = "light";
       return Object.assign(def, saved);
     } catch (e) {
       return def;
@@ -987,6 +989,12 @@
     if (!global.PV.browsercam) return "Модуль передачи не загружен";
     const info = global.PV.browsercam.describe();
     if (info.error) return info.error;
+    if (info.paused) {
+      return (
+        "Передача приостановлена: вкладка не на экране. " +
+        "Вернитесь на вкладку — передача продолжится сама."
+      );
+    }
     if (info.active) return "Идёт передача: отправлено кадров — " + info.sent;
     return (
       "Кадры с камеры отправляются на сервер, обрабатывает их сервер. " +
@@ -1350,28 +1358,6 @@
 
     <div class="set-grid">
       <div class="card set-card">
-        <div class="set-title">Оформление</div>
-        <div class="set-desc">Тема интерфейса сохраняется в браузере</div>
-        <div class="field">
-          <label>Тема</label>
-          <div class="theme-picker" id="themePicker">
-            <button class="theme-opt ${s.theme === "light" ? "is-active" : ""}" data-theme-set="light">
-              <span class="theme-swatch theme-swatch-light" aria-hidden="true">
-                <i></i><i></i><i></i>
-              </span>
-              Светлая
-            </button>
-            <button class="theme-opt ${s.theme === "dark" ? "is-active" : ""}" data-theme-set="dark">
-              <span class="theme-swatch theme-swatch-dark" aria-hidden="true">
-                <i></i><i></i><i></i>
-              </span>
-              Тёмная
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="card set-card">
         <div class="set-title">Расчёт ущерба</div>
         <div class="set-desc">Влияет на все суммы в отчётах и на карточках</div>
         <div class="field">
@@ -1729,16 +1715,6 @@
         this.render("settings");
       });
 
-      /* --- тема оформления --- */
-      on(root, "click", "[data-theme-set]", (e, b) => {
-        const t = b.dataset.themeSet;
-        if (state.settings.theme === t) return;
-        state.settings.theme = t;
-        saveSettings();
-        applyTheme(t);
-        this.render("settings");
-        toast(t === "dark" ? "Включена тёмная тема" : "Включена светлая тема");
-      });
       on(root, "click", "#setSave", () => {
         const g = (id) => document.getElementById(id);
         const s = state.settings;
@@ -1755,9 +1731,8 @@
       on(root, "click", "#setReset", () => {
         localStorage.removeItem("pv_settings");
         state.settings = loadSettings();
-        // Тему тоже возвращаем к значению по умолчанию, иначе
-        // страница осталась бы в старой теме до перезагрузки
-        applyTheme(state.settings.theme);
+        // Сброс всегда возвращает ту же светлую тему, что и загрузка.
+        applyTheme("light");
         syncCostPerMinute();
         toast("Настройки сброшены к значениям по умолчанию");
         this.render();

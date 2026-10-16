@@ -24,8 +24,24 @@
 
   /* Частота отправки, мс. 250 мс ≈ 4 к/с — этого достаточно, чтобы
      конвейер на сервере видел живую картинку, и заметно меньше
-     нагрузки, чем поток камеры целиком. */
+     нагрузки, чем поток камеры целиком.
+
+     Пауза отсчитывается от КОНЦА отправки, а не добавляется к ней.
+     Раньше цикл ждал ещё 250 мс после каждого запроса, поэтому при
+     времени ответа 120 мс реальный интервал выходил 370 мс, а под
+     нагрузкой страницы — больше секунды. */
   const SEND_INTERVAL_MS = 250;
+
+  /* Предел ожидания одного запроса, мс.
+
+     Без него зависший POST останавливал передачу навсегда: цикл ждал
+     ответа, ответа не было, и картинка в окне замирала на одном кадре
+     без всякой ошибки. Обрыв по таймауту виден и поправляется сам. */
+  const SEND_TIMEOUT_MS = 4000;
+
+  /* Ниже этого интервала кадры не шлём: если страница не успевает,
+     лучше реже, чем копить запросы в очередь. */
+  const MIN_INTERVAL_MS = 120;
 
   /* Ширина кадра. Выше 1280 смысла нет: YOLO всё равно смотрит на
      кадр целиком, а трафик растёт квадратично. */
@@ -37,10 +53,16 @@
 
   const state = {
     stream: null,
+    video: null,
     canvas: null,
     ctx: null,
     timer: null,
     sending: false,
+    /* Флаг «запуск уже идёт». Без него два быстрых нажатия «Включить»
+       запускали две передачи одновременно, и они дрались за камеру. */
+    starting: false,
+    /* Передача приостановлена, потому что вкладку скрыли */
+    paused: false,
     sent: 0,
     lastError: "",
     onStateChange: null,
@@ -81,6 +103,10 @@
   function describe() {
     return {
       active: state.sending,
+      /* Передача на паузе, но камера включена: так это и должно
+         выглядеть в интерфейсе, иначе получится «камера выключена»
+         в момент, когда она просто ждёт возврата на вкладку. */
+      paused: state.paused,
       sent: state.sent,
       error: state.lastError,
     };
@@ -110,7 +136,10 @@
   }
 
   async function sendOnce(video) {
-    if (!drawToCanvas(video)) return;
+    /* Возвращает, сколько миллисекунд заняла отправка: цикл использует
+       это, чтобы держать интервал, а не добавлять паузу к времени
+       ответа. */
+    if (!drawToCanvas(video)) return 0;
     let blob = null;
     try {
       blob = await new Promise((resolve) =>
@@ -120,35 +149,61 @@
       /* toBlob может бросить на неподдерживаемом формате — тихо
          пропускаем кадр, следующий попробует снова. */
     }
-    if (!blob) return;
+    if (!blob) return 0;
+
+    /* Отменяем запрос, если он завис: иначе передача встаёт навсегда,
+       и оператор видит неподвижную картинку без объяснений. */
+    const controller =
+      typeof AbortController === "function" ? new AbortController() : null;
+    let timedOut = false;
+    if (controller) {
+      setTimeout(function () {
+        timedOut = true;
+        controller.abort();
+      }, SEND_TIMEOUT_MS);
+    }
 
     try {
-      const response = await fetch(apiBase() + "/api/video/browser/frame", {
+      const options = {
         method: "POST",
         /* Отметка о входе: без неё кадр не примет ни одна защита,
            и камера «перестала работать» после входа. */
         headers: headersWithAuth({ "Content-Type": "image/jpeg" }),
         body: blob,
-      });
+      };
+      if (controller) options.signal = controller.signal;
+      const response = await fetch(
+        apiBase() + "/api/video/browser/frame",
+        options
+      );
       if (response.ok) {
         state.sent += 1;
         state.lastError = "";
+      } else if (response.status === 401) {
+        /* Молчание здесь выглядело бы как «камера не работает».
+           Причина простая: пароль в этой вкладке снялся. */
+        state.lastError = "Сеанс истёк: обновите страницу и войдите снова";
       } else {
         state.lastError = "Сервер ответил " + response.status;
       }
     } catch (e) {
-      state.lastError = "Сервер недоступен";
+      state.lastError = timedOut
+        ? "Сервер не отвечает, передача ждёт"
+        : "Сервер недоступен";
     }
     notify();
+    return timedOut ? SEND_TIMEOUT_MS : 0;
   }
 
   /* Просит камеру и начинает отправлять кадры. Возвращает текст
      ошибки (пустая строка — успех), чтобы вызывающий показал его
      оператору, а не молча проглотил. */
   async function start(videoEl) {
-    if (state.sending) return "";
+    if (state.sending || state.starting) return "";
+    state.starting = true;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      state.starting = false;
       return (
         "Браузер не умеет отдавать камеру на страницу. " +
         "Нужен HTTPS: по http камера недоступна из принципа."
@@ -166,6 +221,7 @@
       });
     } catch (e) {
       const name = (e && e.name) || "";
+      state.starting = false;
       if (name === "NotAllowedError" || name === "SecurityError") {
         return "Доступ к камере не разрешён. Разрешите его в браузере и повторите.";
       }
@@ -205,29 +261,100 @@
     }
 
     state.sending = true;
+    state.starting = false;
+    state.paused = false;
     state.sent = 0;
     state.lastError = "";
+    state.video = video;
 
-    const loop = async () => {
-      if (!state.sending) return;
-      await sendOnce(video);
-      if (!state.sending) return;
-      state.timer = setTimeout(loop, SEND_INTERVAL_MS);
-    };
-    loop();
-
-    /* Уход со вкладки останавливает камеру: иначе в комнате горит
-       зелёный индикатор, хотя страницы уже никто не смотрит. */
     document.addEventListener("visibilitychange", onVisibility);
 
+    kick();
     notify();
     return "";
   }
 
-  function onVisibility() {
-    if (document.hidden) {
-      stop();
+  /* Один шаг передачи: ждём нового кадра камеры (если браузер умеет
+     сообщать о нём), отправляем его и планируем следующий шаг.
+
+     Отправки идут одна за другой, пауза считается от КОНЦА
+     предыдущей, поэтому интервал держится около SEND_INTERVAL_MS
+     независимо от времени ответа. Обрыв по таймауту цикл не
+     завершает: следующий шаг попробует снова. */
+  function loopOnce() {
+    if (!state.sending || state.paused) return;
+    const video = state.video;
+    if (!video) return;
+
+    const send = function () {
+      sendOnce(video)
+        .then(function (took) {
+          if (!state.sending || state.paused) return;
+          state.timer = setTimeout(
+            loopOnce,
+            Math.max(MIN_INTERVAL_MS, SEND_INTERVAL_MS - took)
+          );
+        })
+        .catch(function () {
+          /* Странная ошибка не должна рвать цикл: иначе передача
+             прекратится молча и картинка в окне замрёт. */
+          if (state.sending && !state.paused) {
+            state.timer = setTimeout(loopOnce, SEND_INTERVAL_MS);
+          }
+        });
+    };
+
+    /* Браузер умеет сообщать «в камере пришёл новый кадр». Если он это
+       умеет, отправляем только такие кадры: в неподвижной сцене это
+       экономит кодирование и трафик, а движение попадает в кадр сразу,
+       не дожидаясь таймера. */
+    if (typeof video.requestVideoFrameCallback === "function") {
+      video.requestVideoFrameCallback(send);
+      return;
     }
+
+    state.timer = setTimeout(send, 0);
+  }
+
+  function onVisibility() {
+    /* Вкладку скрыли — не выключаем камеру, а приостанавливаем
+       передачу. Раньше здесь был полный stop(), и это ломало
+       демонстрацию: чтобы показать бота в Telegram, оператор
+       переключался на другую вкладку, после чего камера гасла
+       насмерть и «зависала на одном кадре». Теперь камера остаётся
+       включённой, а цикл возобновляется при возврате на вкладку. */
+    if (document.hidden) {
+      pause();
+    } else {
+      resume();
+    }
+  }
+
+  /* Приостанавливает передачу, не трогая камеру. */
+  function pause() {
+    if (!state.sending || state.paused) return;
+    state.paused = true;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+  }
+
+  function resume() {
+    if (!state.sending || !state.paused) return;
+    state.paused = false;
+    kick();
+  }
+
+  /* Запускает цикл передачи. Вынесено отдельно, чтобы перезапуск после
+     паузы и первый запуск делали одно и то же. */
+  function kick() {
+    if (!state.sending || state.paused) return;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.timer = setTimeout(loopOnce, 0);
   }
 
   /* Останавливает передачу и выключает камеру. Сообщает серверу,
@@ -245,6 +372,9 @@
 
     const wasSending = state.sending;
     state.sending = false;
+    state.paused = false;
+    state.starting = false;
+    state.video = null;
     state.canvas = null;
     state.ctx = null;
 

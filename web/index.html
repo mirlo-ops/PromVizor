@@ -6,11 +6,9 @@
 <title>ПромВизор — Контроль персонала</title>
 <meta name="theme-color" content="#f7f9f9">
 <script>
-  // Ставим тему до отрисовки, иначе тёмная тема мигает светлой
-  try {
-    var s = JSON.parse(localStorage.getItem('pv_settings') || '{}');
-    document.documentElement.setAttribute('data-theme', s.theme === 'dark' ? 'dark' : 'light');
-  } catch (e) {}
+  // Пользовательский выбор темы временно отключён: всегда стартуем
+  // в предсказуемой светлой палитре, не затрагивая остальные настройки.
+  document.documentElement.setAttribute('data-theme', 'light');
 </script>
 <link rel="stylesheet" href="css/styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128230;</text></svg>">

@@ -54,6 +54,12 @@ SYNTHETIC_FPS = 12.0
 #: источника: оператору достаточно, а процессор и сеть берегуся.
 MAX_PIPELINE_FPS = 15.0
 
+#: Как часто конвейер опрашивает источник «Камера браузера». Кадр
+#: приходит по сети в случайный момент, поэтому опрашивать надо чаще,
+#: чем кадры приходят. Сами опросы бесплатны: повторяющиеся кадры
+#: отбрасываются до YOLO.
+BROWSER_POLL_FPS = 15.0
+
 
 @dataclass
 class PipelineState:
@@ -235,6 +241,16 @@ class Pipeline:
                     self._handle_no_frame()
                     continue
 
+                # Браузерная камера отдаёт последний кадр, пока браузер
+                # на связи, — в том числе когда нового кадра ещё нет.
+                # Считать тот же кадр заново незачем: YOLO дорог, а
+                # результат не изменится. Пропускаем обработку, но не
+                # публикацию: в окне остаётся последняя картинка, и
+                # «зависшего» кадра оператор не видит.
+                if self._frame_already_seen():
+                    self._pace()
+                    continue
+
                 self._process(frame)
                 self._pace()
 
@@ -244,6 +260,27 @@ class Pipeline:
                 self._set_error(f"{type(exc).__name__}: {exc}")
                 self._close_source()
                 time.sleep(1.0)
+
+    def _frame_already_seen(self) -> bool:
+        """Этот кадр уже обработан — True, когда обрабатывать нечего.
+
+        Обычные источники всегда отдают следующий кадр, поэтому вопрос
+        к ним не задаётся. Вопрос есть только у браузерной камеры: она
+        отдаёт последний кадр, пока браузер на связи, и при медленной
+        передаче один и тот же кадр приходит снова и снова.
+        """
+        getter = getattr(self.source, "frame_token", None)
+        if not callable(getter):
+            return False
+        check = getattr(self.source, "already_processed", None)
+        if not callable(check):
+            return False
+        try:
+            return bool(check(getter()))
+        except Exception:
+            # Сбой проверки не должен останавливать конвейер: хуже
+            # лишний просчёт, чем чёрное окно
+            return False
 
     def _pace(self) -> None:
         """Держит реальную частоту кадров.
@@ -270,6 +307,15 @@ class Pipeline:
         """Пауза между кадрами, секунды."""
         if self.state.mode == "synthetic":
             fps = SYNTHETIC_FPS
+        elif self.state.mode == camera_mode.MODE_BROWSER:
+            # Браузерную камеру опрашиваем часто, а не по её частоте.
+            # Кадр приходит из сети в произвольный момент, и при
+            # опросе раз в секунду он ждал бы до секунды перед
+            # обработкой — картинка в окне обновлялась бы рывками.
+            # Сами опросы почти ничего не стоят: повторяющиеся кадры
+            # отбрасываются в _frame_already_seen, до YOLO дело не
+            # доходит.
+            return 1.0 / BROWSER_POLL_FPS
         else:
             try:
                 fps = float(self.source.fps) if self.source else 0.0

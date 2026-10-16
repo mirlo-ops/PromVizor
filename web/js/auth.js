@@ -91,87 +91,69 @@
   const HELP_TEXT =
     "Помощь по входу ещё не подключена: пароль и логин выдаёт " +
     "администратор системы.";
-  /* Оформление окна входа.
-
-     Всё по палитре презентации: тёмно-зелёный фон, зелёный акцент,
-     светло-зелёный текст. Плюс два отличия от прежней версии,
-     которые просили привести к образцу:
-       * фон-градиент с бликами вместо плоской заливки;
-       * карточка по центру, узкая, с закруглёнными углами.
-
-     Значки в полях входа (человек и замок) нарисованы инлайном:
-     тянуть их файлами ради двух картинок незачем, а без них поля
-     выглядели бы пустыми и не читались — вводят логин и пароль. */
+  /* Композиция входа — форма перекрывает промо-панель, как в референсе.
+     Градиент и изображения отдаются из web/assets, поэтому пути здесь
+     относительно корня сайта: экран авторизации собирается динамически. */
   const STYLE = `
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
-
+  html { min-height: 100%; background: #1d5439; }
   body {
-    display: flex; align-items: center; justify-content: center;
-    padding: 24px;
-    background: #081c15;
-    color: #d8f3dc;
-    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-    /* Градиент с бликами рисуется дважды: картинка не загрузилась —
-       страница всё равно остаётся цветной, а не чёрной. */
-    background-color: #0e221b;
-    background-image: url("assets/login-bg.svg");
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-  }
-
-  /* Фиксированный слой с градиентом поверх: он не зависит от
-     прокрутки и остаётся на месте, если окно не влезло по высоте. */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    background: #081c15;
-    z-index: -1;
-  }
-
-  .pv-login {
-    width: 100%;
-    max-width: 380px;
-    background: rgba(8, 28, 21, .84);
-    border: 1px solid rgba(82, 183, 136, .28);
-    border-radius: 14px;
-    padding: 34px 30px 26px;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
-  }
-
-  /* Логотип в круге — как на образце, где стоял значок «7».
-     Тот же файл, что и в дашборде: два разных логотипа на одном
-     экране бросились бы в глаза. */
-  .pv-logo {
-    width: 84px; height: 84px;
-    margin: 0 auto 18px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 30% 25%, #2a6d4f, #0e221b 72%);
-    border: 2px solid rgba(82, 183, 136, .55);
+    min-height: 100vh; min-height: 100dvh; margin: 0;
     display: grid; place-items: center;
-    box-shadow: 0 8px 26px rgba(0, 0, 0, .4);
-  }
-  .pv-logo img { width: 52px; height: auto; display: block; }
-
-  .pv-login h1 {
-    margin: 0 0 26px;
-    font-size: 21px; font-weight: 600;
-    text-align: center;
-    color: #d8f3dc;
+    padding: clamp(18px, 4vw, 56px);
+    background: #1d5439 url("assets/gradient.png") center / cover no-repeat fixed;
+    color: #17251d;
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   }
 
-  .pv-field { position: relative; margin-bottom: 14px; }
+  .pv-auth-layout {
+    display: flex; align-items: center;
+    width: min(1120px, 100%);
+    min-height: 510px;
+  }
+  .pv-promo {
+    position: relative; isolation: isolate; overflow: hidden;
+    flex: 1 1 auto; min-width: 0; min-height: 510px;
+    border: 1px solid rgba(255,255,255,.24);
+    border-radius: 24px;
+    background: #10271d;
+    box-shadow: 0 28px 70px rgba(8,28,21,.3);
+  }
+  .pv-promo img {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block; object-fit: cover; object-position: center;
+  }
+  .pv-promo::after {
+    content: ""; position: absolute; inset: 45% 0 0; z-index: 0;
+    background: linear-gradient(180deg, transparent, rgba(5,21,14,.76));
+  }
+  .pv-promo-copy {
+    position: absolute; z-index: 1; right: 34px; bottom: 34px; left: 34px;
+    color: #fff; text-align: right;
+    font-size: clamp(22px, 3vw, 34px); line-height: 1.2; font-weight: 700;
+    letter-spacing: -.025em; text-shadow: 0 2px 16px rgba(0,0,0,.65);
+  }
+  .pv-login {
+    position: relative; z-index: 2; flex: 0 0 440px;
+    margin-right: -118px; padding: 48px 46px 34px;
+    border: 1px solid rgba(255,255,255,.9); border-radius: 22px;
+    background: #fff;
+    box-shadow: 0 24px 64px rgba(8,28,21,.25);
+  }
+  .pv-eyebrow {
+    margin-bottom: 7px; color: #43815f; font-size: 11px;
+    font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+  }
+  .pv-login h1 { margin: 0 0 30px; color: #14251b; font-size: 29px; line-height: 1.2; font-weight: 700; letter-spacing: -.035em; }
+  .pv-field { position: relative; margin-bottom: 18px; }
+  .pv-field label { display: block; margin-bottom: 7px; color: #40564a; font-size: 13px; font-weight: 600; }
   .pv-field svg {
     position: absolute;
-    left: 12px; top: 50%;
+    left: 13px; top: 39px;
     width: 16px; height: 16px;
-    transform: translateY(-50%);
     fill: none;
-    stroke: #52b788;
+    stroke: #47825f;
     stroke-width: 1.8;
     stroke-linecap: round;
     stroke-linejoin: round;
@@ -179,80 +161,65 @@
   }
   .pv-field input {
     width: 100%;
-    padding: 11px 13px 11px 38px;
-    border-radius: 8px;
-    border: 1px solid rgba(82, 183, 136, .3);
-    background: rgba(6, 20, 14, .75);
-    color: #d8f3dc;
-    font-size: 14px;
+    min-height: 48px; padding: 11px 13px 11px 40px;
+    border-radius: 10px; border: 1px solid #d8e5dc;
+    background: #f8fbf9; color: #17251d; font: inherit; font-size: 14px;
   }
-  .pv-field input::placeholder { color: rgba(143, 168, 154, .75); }
+  .pv-field input::placeholder { color: #73877a; }
   .pv-field input:focus {
-    outline: none;
-    border-color: #52b788;
-    box-shadow: 0 0 0 3px rgba(82, 183, 136, .18);
+    outline: 3px solid rgba(48,139,83,.22); outline-offset: 1px;
+    border-color: #31864f;
   }
-
   .pv-login .err {
-    display: none;
-    margin: 2px 0 14px;
-    color: #ff9d9d;
-    font-size: 12.5px;
+    display: none; margin: 2px 0 14px; padding: 10px 12px;
+    border: 1px solid #f2c3c0; border-radius: 9px;
+    background: #fff2f1; color: #a12c26; font-size: 13px;
   }
   .pv-login .err.on { display: block; }
-
   .pv-actions {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    margin-top: 18px;
+    display: flex; gap: 10px; align-items: center; margin-top: 22px;
   }
-
   .pv-actions button {
-    flex: 1;
-    padding: 11px 16px;
-    border: 0;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 600;
+    min-height: 48px; flex: 1; padding: 11px 16px;
+    border: 0; border-radius: 10px; font-size: 14px; font-weight: 650;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    transition: background .15s, opacity .15s;
+    transition: background .15s, opacity .15s, transform .15s;
   }
+  .pv-actions button:focus-visible { outline: 3px solid #17251d; outline-offset: 3px; }
+  .pv-actions button:active { transform: translateY(1px); }
   .pv-actions button svg {
     width: 15px; height: 15px;
     fill: none; stroke: currentColor; stroke-width: 1.9;
     stroke-linecap: round; stroke-linejoin: round;
   }
-  .pv-btn-primary { background: #52b788; color: #081c15; }
-  .pv-btn-primary:hover { background: #6ac99b; }
+  .pv-btn-primary { background: #2e8150; color: #fff; }
+  .pv-btn-primary:hover { background: #236b40; }
   .pv-btn-primary:disabled { opacity: .6; cursor: default; }
-
-  /* Помощь: кнопка настоящая, нажимается и показывает подсказку,
-     ничего не делая. Отключать её через disabled нельзя — тогда
-     она выглядит сломанной, а здесь просят именно живую. */
   .pv-btn-help {
-    background: rgba(82, 183, 136, .16);
-    color: #d8f3dc;
-    border: 1px solid rgba(82, 183, 136, .34) !important;
+    background: #edf5ef; color: #285d3c;
+    border: 1px solid #d0e2d5 !important;
   }
-  .pv-btn-help:hover { background: rgba(82, 183, 136, .26); }
-
-  /* Подпись под формой: на демонстрации пароль не должен быть виден
-     на экране. Текст не содержит самого пароля. */
+  .pv-btn-help:hover { background: #e0eee4; }
   .pv-login .note {
-    margin: 20px 0 0;
-    padding-top: 16px;
-    border-top: 1px solid rgba(82, 183, 136, .16);
-    font-size: 11.5px;
-    line-height: 1.55;
-    color: rgba(143, 168, 154, .9);
+    margin: 20px 0 0; padding-top: 15px;
+    border-top: 1px solid #e8eee9;
+    font-size: 12px; line-height: 1.55; color: #5f7265;
   }
-
-  /* На узких экранах карточка становится во всю ширину, иначе
-     поля съезжают с краёв телефона. */
+  @media (max-width: 760px) {
+    body { display: block; padding: 24px 16px; background-attachment: scroll; }
+    .pv-auth-layout { width: min(500px, 100%); min-height: 0; margin: 0 auto; flex-direction: column; align-items: stretch; }
+    .pv-login { flex: none; width: 100%; margin: 0 0 -38px; padding: 34px clamp(22px, 7vw, 42px) 28px; }
+    .pv-promo { flex: none; width: 100%; min-height: 250px; padding-top: 38px; border-radius: 20px; }
+    .pv-promo-copy { right: 20px; bottom: 20px; left: 20px; font-size: 24px; }
+  }
   @media (max-width: 420px) {
-    .pv-login { padding: 28px 20px 22px; }
+    .pv-login { padding: 30px 22px 24px; }
+    .pv-login h1 { font-size: 26px; margin-bottom: 24px; }
+    .pv-actions { flex-direction: column; align-items: stretch; }
+    .pv-actions button { width: 100%; }
+    .pv-promo { min-height: 210px; }
+    .pv-promo-copy { font-size: 21px; }
   }`;
 
   function show(errorText) {
@@ -263,19 +230,21 @@
       '<link rel="icon" href="data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 100 100\'><text y=\'.9em\' font-size=\'90\'>&#128230;</text></svg>">' +
       '<style>' + STYLE + '</style></head>' +
       '<body>' +
+      '<main class="pv-auth-layout" aria-label="Вход в PromVizor">' +
       '<form class="pv-login" id="pvAuthForm">' +
-      // Логотип в круге — на этом месте в образце стоял значок «7».
-      '<div class="pv-logo"><img src="assets/logo.png" alt="PromVizor"></div>' +
-      "<h1>Авторизация</h1>" +
+      '<p class="pv-eyebrow">PromVizor</p>' +
+      "<h1>Вход в систему</h1>" +
       '<div class="pv-field">' +
       ICON_USER +
-      '<input id="pvLogin" placeholder="Логин" autocomplete="username" required>' +
+      '<label for="pvLogin">Логин</label>' +
+      '<input id="pvLogin" name="login" placeholder="Введите логин" autocomplete="username" required>' +
       "</div>" +
       '<div class="pv-field">' +
       ICON_LOCK +
-      '<input id="pvPass" type="password" placeholder="Пароль" autocomplete="current-password" required>' +
+      '<label for="pvPass">Пароль</label>' +
+      '<input id="pvPass" name="password" type="password" placeholder="Введите пароль" autocomplete="current-password" required>' +
       "</div>" +
-      '<div class="err" id="pvAuthErr">' + escapeHtml(errorText || "") + "</div>" +
+      '<div class="err" id="pvAuthErr" role="alert" aria-live="assertive">' + escapeHtml(errorText || "") + "</div>" +
       '<div class="pv-actions">' +
       '<button type="submit" class="pv-btn-primary" id="pvAuthBtn">' +
       ICON_IN + "<span>Войти</span></button>" +
@@ -286,7 +255,11 @@
       "</div>" +
       '<p class="note" id="pvAuthNote">Пароль спрашивается в каждой новой вкладке. ' +
       "При обновлении страницы он не требуется.</p>" +
-      "</form></body>";
+      "</form>" +
+      '<aside class="pv-promo" aria-label="PromVizor — система контроля персонала">' +
+      '<img src="assets/logo_na_fone.png" alt="Логотип PromVizor на фоне декоративной иллюстрации">' +
+      '<p class="pv-promo-copy">Total control over employees</p>' +
+      "</aside></main></body>";
 
     const form = document.getElementById("pvAuthForm");
     const login = document.getElementById("pvLogin");
@@ -299,8 +272,7 @@
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       btn.disabled = true;
-      btn.disabled = true;
-        setBusy(true);
+      setBusy(true);
       err.classList.remove("on");
 
       try {
