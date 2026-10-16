@@ -142,8 +142,9 @@
     box-shadow: 0 24px 64px rgba(8,28,21,.25);
   }
   .pv-eyebrow {
-    margin-bottom: 7px; color: #43815f; font-size: 11px;
-    font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+    margin-bottom: 7px; color: #deddd3;
+    font-family: "Century Gothic", "Avenir Next", "Montserrat", sans-serif;
+    font-size: 17px; font-weight: 500; letter-spacing: .015em;
   }
   .pv-login h1 { margin: 0 0 30px; color: #14251b; font-size: 29px; line-height: 1.2; font-weight: 700; letter-spacing: -.035em; }
   .pv-field { position: relative; margin-bottom: 18px; }
