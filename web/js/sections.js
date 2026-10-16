@@ -254,14 +254,13 @@
         </div>
 
         <div class="video-stage">
-          <!-- src задан прямо в разметке, а не только скриптом.
-               Раньше здесь стоял лишь data-stream-src, и адрес выставлял
-               render() — если он по какой-то причине не отработал,
-               <img> оставался вообще без источника: на экране был
-               чёрный прямоугольник с вполне живой вёрсткой вокруг, и
-               оператор не мог понять, камера это или интерфейс.
-               Теперь видео включается сразу, вместе с отрисовкой. -->
-          <img id="videoFeed" src="${esc(streamUrl())}" data-stream-src="${esc(streamUrl())}" alt="Видео с камеры ${esc(cam.name)}" onerror="window.PV &amp;&amp; window.PV.sections &amp;&amp; window.PV.sections.markFeedBroken()">
+          <!-- Раньше здесь стоял <img src="/api/video/stream">: браузер сам
+               разбирал поток MJPEG. На части машин Chrome переставал
+               перерисовывать такой <img>, хотя поток продолжал идти, —
+               оператор видел первый кадр навсегда. Теперь поток читает
+               videofeed.js и рисует кадры на canvas; соединение он же
+               и закрывает, поэтому висящих подключений не остаётся. -->
+          <canvas id="videoFeed" class="video-canvas" width="960" height="540" role="img" aria-label="Видео с камеры ${esc(cam.name)}"></canvas>
           <div class="video-overlay">
             <div class="ov-top">
               <span class="ov-chip">${esc(v.modeLabel || v.mode)} · Линия ${line}</span>
@@ -1245,28 +1244,30 @@
     }
   }
 
-  /* Перезагружает <img> с потоком: после смены источника картинка
-     осталась бы от прежней камеры. */
+  /* Переподключает поток после смены источника: картинка осталась бы
+     от прежней камеры.
+     Раньше здесь перезапрашивался <img>, и каждая перезапроска
+     оставляла после себя ещё одно незакрытое соединение с потоком.
+     Теперь соединение закрывает сам videofeed — одним AbortController,
+     и старых подключений не остаётся. */
   function restartVideoFeed() {
-    const feed = document.getElementById("videoFeed");
-    if (feed) {
-      // Адрес берём из разметки, а не из feed.src. Раньше здесь было
-      // feed.src.split("?")[0] + "?t=" + Date.now(), и если src ещё не
-      // был выставлен, получался относительный адрес «?t=1757…» —
-      // браузер грузил бы его сам, от другого хоста, и картинка была бы
-      // чёрной навсегда, уже без возможности понять почему.
-      const base = (feed.dataset.streamSrc || streamUrl()).split("?")[0];
-      /* Метка времени нужна, чтобы <img> перезапросил кадр, и
-         отметка о входе — чтобы сервер не отдал вместо потока
-         страницу входа (картинка была бы вечной «заглушкой»). */
-      const token = global.PV.api.authToken();
-      feed.src =
-        base +
-        "?t=" +
-        Date.now() +
-        (token ? "&pv_auth=" + encodeURIComponent(token) : "");
-      startFeedWatchdog();
+    if (global.PV.videofeed) {
+      const feed = document.getElementById("videoFeed");
+      global.PV.videofeed.open();
+      if (feed) global.PV.videofeed.attach(feed);
+    } else {
+      const feed = document.getElementById("videoFeed");
+      if (feed && feed.tagName === "IMG") {
+        const base = (feed.dataset.streamSrc || streamUrl()).split("?")[0];
+        const token = global.PV.api.authToken();
+        feed.src =
+          base +
+          "?t=" +
+          Date.now() +
+          (token ? "&pv_auth=" + encodeURIComponent(token) : "");
+      }
     }
+    startFeedWatchdog();
   }
 
   /* ------------------------------------------------------------
@@ -1309,9 +1310,14 @@
   function startFeedWatchdog() {
     if (feedWatchdog) clearTimeout(feedWatchdog);
     feedWatchdog = setTimeout(function () {
-      const feed = document.getElementById("videoFeed");
-      // Кадр пришёл — поток живой, вмешиваться нечего
-      if (feed && feed.naturalWidth > 0) {
+      /* Кадры пришли — поток живой, вмешиваться нечего.
+         Считает их videofeed: у <img> больше нет naturalWidth,
+         да и сам <img> больше не используется. */
+      const stats =
+        global.PV.videofeed && global.PV.videofeed.stats
+          ? global.PV.videofeed.stats()
+          : null;
+      if (stats && stats.frames > 0) {
         hideFeedMessage();
         return;
       }
@@ -1553,13 +1559,15 @@
       if (target === "cameras") {
         const feed = el.querySelector("#videoFeed");
         if (liveFeed && feed) {
+          /* Старый canvas переносим в новую разметку — так поток не
+             рвётся на каждом автообновлении. */
           feed.replaceWith(liveFeed);
-          liveFeed.alt = feed.alt;
-          if (!liveFeed.src) liveFeed.src = feed.dataset.streamSrc;
+          if (global.PV.videofeed) global.PV.videofeed.attach(liveFeed);
         } else if (feed) {
-          // На всякий случай: src уже задан в разметке, но после
-          // переноса старого <img> он мог остаться пустым
-          if (!feed.src) feed.src = feed.dataset.streamSrc;
+          /* Canvas только что создан заново: подключаем к нему поток.
+             attach() сам различает «тот же элемент» и «новый», поэтому
+             лишних переподключений при автообновлении не выходит. */
+          if (global.PV.videofeed) global.PV.videofeed.attach(feed);
         }
         startFeedWatchdog();
       }

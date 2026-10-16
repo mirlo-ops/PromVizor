@@ -43,6 +43,11 @@
      лучше реже, чем копить запросы в очередь. */
   const MIN_INTERVAL_MS = 120;
 
+  /* Через сколько миллисекунд без единого отправленного кадра
+     передачу считают зависшей и поднимают заново. Запас большой:
+     при медленной сети настоящий интервал доходит до секунды. */
+  const WATCHDOG_MS = 4000;
+
   /* Ширина кадра. Выше 1280 смысла нет: YOLO всё равно смотрит на
      кадр целиком, а трафик растёт квадратично. */
   const TARGET_WIDTH = 1280;
@@ -64,6 +69,10 @@
     starting: false,
     /* Передача приостановлена, потому что вкладку скрыли */
     paused: false,
+    /* Таймер сторожа и отметка: сколько кадров было при последней
+       проверке. Если счётчик не двинулся — цикл поднимаем заново. */
+    watchdog: null,
+    sentMark: -1,
     sent: 0,
     lastError: "",
     onStateChange: null,
@@ -283,9 +292,24 @@
     state.starting = false;
     state.paused = false;
     state.sent = 0;
+    state.sentMark = 0;
     state.lastError = "";
     state.video = video;
     state.preview = videoEl || null;
+
+    /* Камеру могли перехватить: Zoom, видеоредактор, другая вкладка.
+       Тогда поток молча обрывается, кадры перестают приходить, и
+       оператор видит неподвижную картинку без объяснений. Ловим
+       момент обрыва и говорим о нём прямо. */
+    if (state.stream && state.stream.getVideoTracks) {
+      state.stream.getVideoTracks().forEach(function (track) {
+        track.addEventListener("ended", function () {
+          state.lastError =
+            "Камера освобождена другой программой — закройте её";
+          notify();
+        });
+      });
+    }
 
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -352,33 +376,44 @@
         });
     };
 
-    /* Браузер умеет сообщать «в камере пришёл новый кадр». Если он это
-       умеет, отправляем только такие кадры: в неподвижной сцене это
-       экономит кодирование и трафик, а движение попадает в кадр сразу,
-       не дожидаясь таймера.
+    /* Раньше здесь стоял requestVideoFrameCallback: «отправляем только
+       новые кадры камеры». Экономия была небольшая — в неподвижной
+       сцене не уходит кадр, в котором ничего не изменилось.
 
-       Но только пока он РАБОТАЕТ. requestVideoFrameCallback молчит в
-       фоновой вкладке и на некоторых машинах не срабатывает вовсе —
-       тогда цикл замирал после первого кадра навсегда, и оператор
-       видел неподвижную картинку без единого сообщения. Поэтому ниже
-       сторож: если за два интервала кадр не пришёл, продолжаем по
-       обычному таймеру. */
-    if (typeof video.requestVideoFrameCallback === "function") {
-      let fired = false;
-      const fire = function () {
-        if (fired) return;
-        fired = true;
-        send();
-      };
-      video.requestVideoFrameCallback(fire);
-      state.timer = setTimeout(function () {
-        /* Кадр так и не пришёл — обходимся таймером. */
-        fire();
-      }, SEND_INTERVAL_MS * 2);
-      return;
-    }
+       А поломка была дорогая. Этот обратный вызов МОЛЧИТ в фоновой
+       вкладке, на части камер не срабатывает вовсе, а когда не
+       срабатывает — цикл замирает НАВСЕГДА и молча. Именно это и
+       происходило: кадры шли около минуты, потом замолчали, сервер
+       держал последний кадр, и оператор смотрел на неподвижную
+       картинку без единого сообщения об ошибке. Проверено на живом
+       сервере: конвейер ждал кадров 85 секунд, пока окно стояло.
 
+       Обычный таймер не может «размолчаться»: он срабатывает всегда.
+       Плата — лишние килобайты в неподвижной сцене, и это заметно
+       дешевле камеры, которая «перестала работать». */
     state.timer = setTimeout(send, 0);
+  }
+
+  /* Сторож передачи.
+   *
+   * Если за WATCHDOG_MS не ушёл ни один кадр, хотя передача считается
+   * включённой, — цикл куда-то делся: потерялся таймер, браузер усыпил
+   * вкладку, поток камеры отвалился. Поднимаем цикл заново. Раньше
+   * такой заминки хватало, чтобы камера молчала до перезагрузки
+   * страницы. */
+  function armWatchdog() {
+    if (state.watchdog) clearTimeout(state.watchdog);
+    state.watchdog = setTimeout(function () {
+      if (!state.sending || state.paused) return;
+      if (state.sent !== state.sentMark) {
+        state.sentMark = state.sent;
+        armWatchdog();
+        return;
+      }
+      state.lastError = "Передача зависла, восстанавливаем…";
+      kick();
+      armWatchdog();
+    }, WATCHDOG_MS);
   }
 
   function onVisibility() {
@@ -420,6 +455,7 @@
       state.timer = null;
     }
     state.timer = setTimeout(loopOnce, 0);
+    armWatchdog();
   }
 
   /* Останавливает передачу и выключает камеру. Сообщает серверу,
@@ -450,6 +486,10 @@
     state.preview = null;
     state.canvas = null;
     state.ctx = null;
+    if (state.watchdog) {
+      clearTimeout(state.watchdog);
+      state.watchdog = null;
+    }
 
     if (wasSending) {
       fetch(apiBase() + "/api/video/browser/stop", {
