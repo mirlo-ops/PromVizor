@@ -1083,10 +1083,15 @@
        не туда, режим камеры оставался «синтетика», и оператор вообще
        не понимал, в каком режиме система работает. */
     const base = global.PV.api.baseUrl();
+    /* Запросы идут через api.get(), а не через голый fetch: почти все
+       /api/* закрыты паролем. Без заголовка X-Promvizor-Auth сервер
+       отвечает 401, и — что хуже всего — 401 НЕ считается ошибкой:
+       поле оставалось со значением по умолчанию, и после перезагрузки
+       страницы список режимов показывал «синтетику» независимо от
+       того, что сервер на самом деле работает в другом режиме. */
     try {
-      const modeResponse = await fetch(base + "/api/video/mode");
-      if (modeResponse.ok) {
-        const mode = await modeResponse.json();
+      const mode = await global.PV.api.get("/api/video/mode");
+      if (mode && mode.mode) {
         state.video.mode = mode.mode;
         state.video.modeLabel = mode.mode_label;
         state.video.webcamIndex = mode.webcam_index;
@@ -1098,11 +1103,8 @@
     }
 
     try {
-      const camerasResponse = await fetch(base + "/api/video/cameras");
-      if (camerasResponse.ok) {
-        const list = await camerasResponse.json();
-        state.video.webcams = list.items || [];
-      }
+      const list = await global.PV.api.get("/api/video/cameras");
+      state.video.webcams = (list && list.items) || [];
     } catch (e) {
       state.video.webcams = [];
     }
@@ -1111,12 +1113,12 @@
   }
 
   /* Список демо-сценариев с сервера: какие ролики на месте и как
-     сценарий называется по-русски. */
+     сценарий называется по-русски. Через api.get() — эндпоинт тоже
+     закрыт паролем. */
   async function loadScenarios(base) {
     try {
-      const response = await fetch(base + "/api/video/scenarios");
-      if (!response.ok) return;
-      const payload = await response.json();
+      const payload = await global.PV.api.get("/api/video/scenarios");
+      if (!payload) return;
       state.video.scenarios = payload.items || [];
       state.video.scenarioLabels = payload.labels || {};
       state.video.demoScenario = payload.current || "";
@@ -1329,16 +1331,17 @@
 
   async function refreshVideoState() {
     /* Состояние конвейера — источник ПРАВДЫ о том, что с камерой.
-       Раньше оно не запрашивалось вовсе, и формулировки вроде
-       «Нет сигнала с камеры» или «кадры идут, но чёрные» до интерфейса
-       не доходили: оператор видел просто чёрный прямоугольник и гадал.
-       Запрашиваем не каждый кадр, а раз в цикл автообновления. */
-    const base = global.PV.api.baseUrl();
+       Запрашиваем не каждый кадр, а раз в цикл автообновления.
+
+       Через api.get(), а не голый fetch: /api/video/state закрыт
+       паролем, и без заголовка приходил 401, который молча
+       проглатывался. Из-за этого надпись «нет сигнала» на экране
+       была старой: интерфейс так и не узнавал, что камера ожила. */
     try {
-      const response = await fetch(base + "/api/video/state");
-      if (!response.ok) return;
-      const s = await response.json();
+      const s = await global.PV.api.get("/api/video/state");
+      if (!s) return;
       setVideoError(s.error || "");
+      state.video.lastState = s;
     } catch (e) {
       /* Сервер не ответил — про это уже сообщает data.reload() */
     }

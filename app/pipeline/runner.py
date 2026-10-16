@@ -504,6 +504,24 @@ class Pipeline:
         # с браузера» оставалась на экране навсегда, хотя видео шло.
         self._clear_transient_error()
 
+        browser = self.state.mode == camera_mode.MODE_BROWSER
+
+        if browser:
+            # Кадр показываем СРАЗУ, не дожидаясь YOLO.
+            #
+            # Почему. Браузер шлёт кадры 3–5 раз в секунду, а
+            # распознавание человека на сервере занимает от долей секунды
+            # до двух. Публикация стояла ПОСЛЕ распознавания, поэтому
+            # окно обновлялось раз в секунду-две: живая камера выглядела
+            # замершей на одном кадре, и оператор считал, что видео не
+            # идёт. Именно это и было сказано: «видео не идёт, стоит на
+            # первом кадре».
+            #
+            # Теперь окно обновляется с той же частотой, с какой
+            # приходят кадры. Рамки и статус отстают на одно
+            # распознавание — на глаз это незаметно, зато картинка живая.
+            self._publish_now(frame)
+
         detections = self._detect_sparse(frame)
         tracks = self.tracker.update(detections)
 
@@ -514,6 +532,23 @@ class Pipeline:
         status = self.engine.status(result, now=time.monotonic())
 
         self._write_state(events, status)
+
+        if browser:
+            # Кадр уже показан. Обновляем только разметку для следующего.
+            with self._frame_lock:
+                self._preview_tracks = [
+                    Track(
+                        track_id=track.track_id,
+                        box=tuple(track.box),
+                        confidence=track.confidence,
+                        trail=deque(track.trail),
+                        misses=track.misses,
+                        age=track.age,
+                    )
+                    for track in tracks
+                ]
+                self._preview_status = result.line_status
+            return
 
         annotated = overlay.render_frame(
             frame.copy(),
@@ -532,6 +567,35 @@ class Pipeline:
             self._set_error(problem)
 
         self._publish(annotated, tracks, result)
+
+    def _publish_now(self, frame) -> None:
+        """Показывает кадр с разметкой от прошлого распознавания.
+
+        Вызывается до YOLO, чтобы окно жило. Дорогая часть конвейера
+        (детектор и трекер) в это время ещё считает прошлый кадр.
+        """
+        status = self._preview_status
+        annotated = overlay.render_frame(
+            frame.copy(),
+            self._preview_tracks,
+            line_status=status,
+            roi=self.roi,
+        )
+        problem = getattr(self.source, "problem", "") if self.source else ""
+        if problem:
+            annotated = overlay.draw_banner(annotated, "НЕТ СИГНАЛА", ok=False)
+
+        # _publish ждёт ИТОГ КАДРА, а не строку статуса. Подставляем
+        # результат, собранный из прошлого распознавания: публикуемый
+        # кадр один и тот же, различается только источник данных о
+        # состоянии линии.
+        result = VisionResult(
+            person_present=self.state.person_present,
+            line_status=status,
+            confidence=0.0,
+            motion=0.0,
+        )
+        self._publish(annotated, self._preview_tracks, result)
 
     def _detect(self, frame) -> List[Any]:
         """Находит людей в кадре.

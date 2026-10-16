@@ -275,7 +275,8 @@
     try {
       await video.play();
     } catch (e) {
-      /* см. выше: если автозапуск запрещён, цикл повторит попытку */
+      /* См. playWatchdog в loopOnce: если автозапуск запрещён,
+         попытка повторяется оттуда. Здесь глотаем ошибку намеренно. */
     }
 
     state.sending = true;
@@ -305,6 +306,34 @@
     const video = state.video;
     if (!video) return;
 
+    /* Видео ещё не отдаёт ни одного кадра.
+     *
+     * Самая неприятная поломка была именно здесь. Браузер иногда
+     * запрещает автозапуск (policy, отсутствие жеста пользователя), и
+     * play() возвращает отказ. Раньше этот отказ глотали и больше НЕ
+     * ПЫТАЛИСЬ: у элемента остаётся videoWidth = 0, рисовать нечего,
+     * и на сервер не уходил ни один кадр. Оператор видел «нет сигнала
+     * с браузера», хотя доступ к камере был разрешён.
+     *
+     * Здесь повторяем попытку и показываем честную причину, вместо
+     * того чтобы молча стоять. */
+    if (!video.videoWidth || !video.videoHeight) {
+      state.emptyTicks = (state.emptyTicks || 0) + 1;
+      if (state.emptyTicks === 3) {
+        state.lastError =
+          "Камера открыта, но кадры не идут: нажмите вкладку с сайтом";
+      }
+      try {
+        const attempt = video.play();
+        if (attempt && attempt.catch) attempt.catch(function () {});
+      } catch (e) {
+        /* повторим на следующем шаге */
+      }
+      state.timer = setTimeout(loopOnce, SEND_INTERVAL_MS);
+      return;
+    }
+    state.emptyTicks = 0;
+
     const send = function () {
       sendOnce(video)
         .then(function (took) {
@@ -326,9 +355,26 @@
     /* Браузер умеет сообщать «в камере пришёл новый кадр». Если он это
        умеет, отправляем только такие кадры: в неподвижной сцене это
        экономит кодирование и трафик, а движение попадает в кадр сразу,
-       не дожидаясь таймера. */
+       не дожидаясь таймера.
+
+       Но только пока он РАБОТАЕТ. requestVideoFrameCallback молчит в
+       фоновой вкладке и на некоторых машинах не срабатывает вовсе —
+       тогда цикл замирал после первого кадра навсегда, и оператор
+       видел неподвижную картинку без единого сообщения. Поэтому ниже
+       сторож: если за два интервала кадр не пришёл, продолжаем по
+       обычному таймеру. */
     if (typeof video.requestVideoFrameCallback === "function") {
-      video.requestVideoFrameCallback(send);
+      let fired = false;
+      const fire = function () {
+        if (fired) return;
+        fired = true;
+        send();
+      };
+      video.requestVideoFrameCallback(fire);
+      state.timer = setTimeout(function () {
+        /* Кадр так и не пришёл — обходимся таймером. */
+        fire();
+      }, SEND_INTERVAL_MS * 2);
       return;
     }
 
@@ -399,6 +445,7 @@
     state.sending = false;
     state.paused = false;
     state.starting = false;
+    state.emptyTicks = 0;
     state.video = null;
     state.preview = null;
     state.canvas = null;
