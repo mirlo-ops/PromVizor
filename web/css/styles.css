@@ -597,6 +597,8 @@ svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;stroke
 .tl-head>div:first-child{border-left:0}
 .tl-head svg{width:22px;height:22px;color:var(--muted)}
 .tl-row{display:grid;grid-template-columns:repeat(var(--cols),1fr);flex:1;min-height:0}
+/* Плашка под таймлайном: часть событий скрыта, чтобы вкладка не подвисала */
+.tl-note{margin-top:10px;color:var(--muted);font-size:14px;line-height:1.4}
 .tl-col{
   position:relative;border-left:1px solid var(--line);overflow:hidden;
   background-image:repeating-linear-gradient(to bottom,transparent 0,transparent calc(var(--row-h) - 1px),var(--line) calc(var(--row-h) - 1px),var(--line) var(--row-h));

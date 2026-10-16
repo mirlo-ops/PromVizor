@@ -37,6 +37,13 @@ class Settings:
     # Сколько секунд состояние UNKNOWN отменяет незавершённый простой.
     # Нет данных — не считаем, что линия заработала.
     downtime_unknown_grace_seconds: int = 10
+    # Короткие остановки в историю не пишутся. Камера (особенно
+    # веб-камера) даёт «дребезг»: линия на секунду показалась стоящей,
+    # и без этого порога каждая микропауза порождала пару записей
+    # STARTED/FINISHED. За сутки накапливались тысячи строк, вкладка
+    # «Линии» подгружала их целиком и интерфейс замирал.
+    # 0 — писать всё (старое поведение).
+    downtime_min_record_seconds: int = 30
 
     # --- Камеры ---
     camera_id: int = 1
@@ -152,6 +159,7 @@ def _from_env() -> "Settings":
         # --- Event Engine ---
         downtime_threshold_seconds=env_int("DOWNTIME_THRESHOLD_SECONDS", 30),
         downtime_threshold_webcam_seconds=env_int("DOWNTIME_THRESHOLD_WEBCAM_SECONDS", 5),
+        downtime_min_record_seconds=env_int("DOWNTIME_MIN_RECORD_SECONDS", 30),
         # --- Камеры ---
         camera_id=env_int("CAMERA_ID", 1),
         # --- ROI ---

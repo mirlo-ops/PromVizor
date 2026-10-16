@@ -197,6 +197,64 @@ def test_delete_event():
 
 
 # --------------------------------------------------------------------------- #
+# Запись без дублей (record_event)
+# --------------------------------------------------------------------------- #
+def test_record_event_keeps_one_row_per_downtime():
+    db, repo = fresh()
+    repo.ensure_camera(1)
+
+    repo.record_event(started())
+    repo.record_event(finished(seconds=300))
+
+    events = repo.recent_events(limit=10)
+    assert len(events) == 1, f"простой должен занять одну строку, а не две: {events}"
+    assert events[0].event == EventType.DOWNTIME_FINISHED
+    assert events[0].duration_seconds == 300
+    db.close()
+
+
+def test_record_event_does_not_reopen_while_downtime_open():
+    db, repo = fresh()
+    repo.ensure_camera(1)
+
+    first = repo.record_event(started())
+    second = repo.record_event(started())
+
+    assert first == second, "второе начало простоя создало новую строку"
+    assert db.table_counts()["downtime_events"] == 1
+    db.close()
+
+
+def test_discard_open_event_removes_micropausing_downtime():
+    db, repo = fresh()
+    repo.ensure_camera(1)
+
+    repo.record_event(started())
+    assert repo.discard_open_event(1) == 1
+    assert repo.recent_events(limit=10) == []
+
+    # Второй раз удалять нечего: простоя уже нет.
+    assert repo.discard_open_event(1) == 0
+    db.close()
+
+
+def test_record_event_keeps_open_downtime_of_other_camera():
+    db, repo = fresh()
+    repo.ensure_camera(1)
+    repo.ensure_camera(2)
+
+    repo.record_event(started(camera_id=1))
+    repo.record_event(finished(camera_id=2, seconds=600))
+
+    events = repo.recent_events(limit=10)
+    assert len(events) == 2
+    assert any(e.event == EventType.DOWNTIME_STARTED for e in events), (
+        "простой первой камеры не должен закрываться событием второй"
+    )
+    db.close()
+
+
+# --------------------------------------------------------------------------- #
 # Статусы
 # --------------------------------------------------------------------------- #
 def test_latest_status():

@@ -156,6 +156,78 @@ class EventRepository:
         return ids
 
     # ------------------------------------------------------------------ #
+    # Запись событий без дублей
+    # ------------------------------------------------------------------ #
+    def open_event_id(self, camera_id: Optional[int] = None) -> Optional[int]:
+        """id незавершённого простоя камеры (None, если простоя нет).
+
+        Незавершённый простой — строка `DOWNTIME_STARTED` без конца.
+        Именно она нужна, чтобы не плодить вторую запись того же
+        простоя при очередном сбое кадров.
+        """
+        sql = (
+            f"SELECT {Column.ID} FROM {Table.DOWNTIME_EVENTS} "
+            f"WHERE {Column.EVENT} = ?"
+        )
+        params: List[object] = [EventType.DOWNTIME_STARTED]
+        if camera_id is not None:
+            sql += f" AND {Column.CAMERA_ID} = ?"
+            params.append(int(camera_id))
+        sql += f" ORDER BY {Column.ID} DESC LIMIT 1"
+
+        row = self.db.query_one(sql, tuple(params))
+        return int(row[Column.ID]) if row else None
+
+    def record_event(
+        self,
+        event: DowntimeEvent,
+        created_at: Optional[str] = None,
+    ) -> int:
+        """Сохраняет событие простоя так, чтобы один простой = одна строка.
+
+        Раньше STARTED и FINISHED оставались в базе двумя строками
+        навсегда, поэтому один простой занимал две записи, а каждый
+        сбой кадров добавлял ещё одну «открытую» строку, которая уже
+        никогда не закрывалась.
+
+        Теперь при завершении простоя открытая строка УДАЛЯЕТСЯ, а
+        завершённая пишется как обычно — новой строкой со своим id.
+        Именно новая строка, а не обновление старой: Telegram ходит
+        по базе по id («пришли события после N»), и при обновлении
+        он бы уже не увидел окончание простоя.
+
+        Итог: в таблице один простой = одна строка, открытых строк
+        не копится, порядок id (а на нём держится бот) сохраняется.
+        """
+        open_id = self.open_event_id(event.camera_id)
+
+        if str(event.event) == EventType.DOWNTIME_FINISHED:
+            if open_id is not None:
+                self.db.execute(
+                    f"DELETE FROM {Table.DOWNTIME_EVENTS} WHERE {Column.ID} = ?",
+                    (int(open_id),),
+                )
+        elif open_id is not None:
+            # Простой уже открыт — второй раз его начинать незачем.
+            # Так случится, если конвейер перезапустили, не закрыв простой.
+            return int(open_id)
+
+        return self.save_event(event, created_at=created_at)
+
+    def discard_open_event(self, camera_id: int) -> int:
+        """Убирает незавершённый простой камеры. Возвращает число строк.
+
+        Нужно, когда простой оказался микропаузой: запись о начале уже
+        успела появиться, но в историю простоя она попадать не должна.
+        """
+        cursor = self.db.execute(
+            f"DELETE FROM {Table.DOWNTIME_EVENTS} "
+            f"WHERE {Column.EVENT} = ? AND {Column.CAMERA_ID} = ?",
+            (EventType.DOWNTIME_STARTED, int(camera_id)),
+        )
+        return int(cursor.rowcount or 0)
+
+    # ------------------------------------------------------------------ #
     # Запись статусов
     # ------------------------------------------------------------------ #
     def save_status(

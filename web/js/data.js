@@ -175,8 +175,14 @@
 
   /* ---------- загрузка ---------- */
   /* Загружаем окно вокруг выбранного дня: этого хватает и для
-     таймлайна за сутки, и для отчёта за месяц. */
+     таймлайна за сутки, и для отчёта за месяц.
+
+     Сколько событий запрашиваем — с запасом, но не безгранично.
+     Раньше тянулось 1000 событий за окно ±40 дней, и если простоями
+     шёл дребезг камеры (десятки записей в минуту), ответ и разбор
+     событий становились тяжелее всех остальных разделов сразу. */
   const WINDOW_DAYS = 40;
+  const EVENTS_LIMIT = 500;
 
   function inRange(iso) {
     return cache.from && cache.to && iso >= cache.from && iso <= cache.to;
@@ -198,7 +204,7 @@
     const [cameras, config, events] = await Promise.all([
       api.cameras({ fresh: force }),
       api.config({ fresh: force }),
-      api.events({ since: from, until: to, limit: 1000, fresh: force }),
+      api.events({ since: from, until: to, limit: EVENTS_LIMIT, fresh: force }),
     ]);
 
     /* Клиент API возвращает null вместо исключения, поэтому

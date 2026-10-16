@@ -169,6 +169,17 @@ class Pipeline:
         self._last_status_write = 0.0
         #: Как часто писать снимок состояния в базу, секунд
         self.status_interval = 2.0
+        # Порог записи простоя в историю. Короткие остановки (дребезг
+        # камеры, дрожание границы «стоит/работает») в базу не идут.
+        #
+        # В ДЕМО-режиме порог не действует: там остановка линии
+        # задана сценарием и показывать её нужно любой длительности,
+        # иначе демонстрация перестаёт показывать простой вовсе.
+        self.min_record_seconds = (
+            0.0
+            if self.state.mode in ("demo", "synthetic")
+            else float(settings.downtime_min_record_seconds or 0)
+        )
 
         # --- скорость детекции человека ---
         #: Как часто запускать YOLO: 1 — на каждом кадре (медленно,
@@ -733,9 +744,21 @@ class Pipeline:
     def _write_state(self, events, status: SystemStatus) -> None:
         """Пишет события и снимок состояния в базу."""
         for event in events:
+            # Микропауза в историю не идёт. Открытая запись о начале
+            # простоя к этому моменту уже есть, поэтому её снимаем:
+            # иначе каждая короткая остановка камеры оставляла бы
+            # «вечно открытый» простой, а их за сутки набирались
+            # тысячи — вкладка «Линии» их подгружала и подвисала.
+            if not event.is_started and event.duration_seconds < self.min_record_seconds:
+                try:
+                    self.repo.discard_open_event(event.camera_id)
+                except Exception as exc:  # noqa: BLE001
+                    self._set_error(f"Не удалось убрать микропростой: {exc}")
+                continue
+
             contract = event.to_contract(self.engine.cost_per_minute)
             try:
-                self.repo.save_event(contract)
+                self.repo.record_event(contract)
             except Exception as exc:  # noqa: BLE001
                 self._set_error(f"Не удалось сохранить событие: {exc}")
 

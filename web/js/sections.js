@@ -199,7 +199,7 @@
     const line = state.camLine;
     /* Таймлайн показывает и открытый простой (идущий прямо сейчас):
        он ещё не завершён, но оператор должен видеть, что линия стоит. */
-    const evs = data.events(state.day, line);
+    const evs = capEvents(data.events(state.day, line), TIMELINE_MAX).list;
     /* Камера выбирается по выбранной линии, а не всегда первая:
        иначе при переключении на «Линию 2» заголовок продолжал
        называть «Камера №1». */
@@ -355,6 +355,26 @@
   /* Раскладка пересекающихся событий по дорожкам (columns).
      События, перекрывающиеся по времени, раскладываются в соседние колонки
      внутри одной линии, поэтому карточки физически не могут наложиться. */
+  /* Сколько событий одной линии рисуем на таймлайне за сутки.
+     История в базе хранится целиком, но рисовать её надо не всё:
+     сотни карточек за сутки (дребезг камеры даёт именно столько)
+     растягивали отрисовку на секунды и подвешивали вкладку. */
+  const TIMELINE_MAX = 120;
+
+  /* Оставляет самые длинные простои, если их больше лимита.
+     Короткие микропаузы на таймлайне всё равно не читаются, а
+     именно они съедали кадр. Итоги (суммы, ущерб, число событий)
+     считаются по полному списку и отсюда не зависят. */
+  function capEvents(events, limit) {
+    if (events.length <= limit) return { list: events, hidden: 0 };
+    const list = events
+      .slice()
+      .sort((a, b) => (b.durationSec || 0) - (a.durationSec || 0))
+      .slice(0, limit)
+      .sort((a, b) => a.startMin - b.startMin);
+    return { list, hidden: events.length - list.length };
+  }
+
   function packLanes(events) {
     const sorted = events
       .slice()
@@ -485,7 +505,12 @@
     const day = state.day;
     const iso = U.dayISO(day);
     const perLine = {};
-    data.lines.forEach((l) => (perLine[l] = packLanes(data.events(iso, l))));
+    let hidden = 0;
+    data.lines.forEach((l) => {
+      const capped = capEvents(data.events(iso, l), TIMELINE_MAX);
+      hidden += capped.hidden;
+      perLine[l] = packLanes(capped.list);
+    });
     const dt = data.downtimeByLine(iso);
 
     const HOURS = [0, 6, 12, 18, 24];
@@ -643,6 +668,10 @@
         <div class="tl-row" style="--cols:${data.lines.length};--row-h:104px">${cols}</div>
       </div>
     </div>
+    ${hidden
+      ? `<div class="tl-note">На таймлайне показаны ${TIMELINE_MAX} самых длинных простоев
+           на линию, скрыто ещё ${hidden}. Полная история — в отчётах и в базе.</div>`
+      : ""}
 
     <div class="card downtime-card">
       <div class="dt-title">${icon("clock")}<h3>Простои</h3></div>
