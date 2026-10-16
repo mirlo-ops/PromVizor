@@ -38,7 +38,13 @@ router = APIRouter(prefix="/api/video", tags=["видео"])
 BOUNDARY = "frame"
 
 #: Ограничиваем отдачу потока на уровне частоты обработки конвейера.
-MAX_STREAM_FPS = 24.0
+MAX_STREAM_FPS = 12.0
+
+#: Как часто повторять кадр, если картинка не меняется. Пульс нужен,
+#: чтобы клиент отличал «поток жив, в кадре ничего не движется» от
+#: «поток оборвался». Без него клиент рвал соединение в неподвижной
+#: сцене, и на сервере копились сотни соединений.
+HEARTBEAT_S = 2.0
 
 
 # --------------------------------------------------------------------------- #
@@ -55,53 +61,119 @@ def get_pipeline(repo: EventRepository = Depends(get_repository)) -> Pipeline:
 # Поток и снимок
 # --------------------------------------------------------------------------- #
 @router.get("/stream", summary="Живой видеопоток с камеры (MJPEG)")
-async def stream(pipeline: Pipeline = Depends(get_pipeline)) -> StreamingResponse:
+async def stream(request: Request, pipeline: Pipeline = Depends(get_pipeline)) -> StreamingResponse:
     """Отдаёт кадры с разметкой как поток MJPEG.
 
     Пока первый кадр не готов, отдаётся заглушка: иначе страница
-    висела бы на пустом `<img>` до первого кадра, а оператор решил бы,
+    висела бы на пустом окне до первого кадра, а оператор решил бы,
     что камера не работает.
     """
     return StreamingResponse(
-        _mjpeg(pipeline),
+        _mjpeg(pipeline, request),
         media_type=f"multipart/x-mixed-replace; boundary={BOUNDARY}",
         headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
     )
 
 
-async def _mjpeg(pipeline: Pipeline) -> AsyncIterator[bytes]:
-    """Отдаёт JPEG-кадры по одному, пока клиент подключён."""
+async def _mjpeg(pipeline: Pipeline, request: Optional[Request] = None) -> AsyncIterator[bytes]:
+    """Отдаёт JPEG-кадры по одному, пока клиент подключён.
+
+    Прощается с клиентом сам. Это не формальность: поток бесконечный,
+    и без проверки отключения он держал соединение вечно. При остановке
+    сервиса uvicorn ждёт, пока закроются все соединения, поэтому
+    перезапуск занимал 90 секунд и завершался SIGKILL — сайт лежал
+    полторы минуты. Проверено на сервере дважды.
+    """
     interval = 1.0 / MAX_STREAM_FPS
     last_sent = b""
+    last_sent_at = 0.0
     idle_sent = 0
 
-    while True:
-        frame = await asyncio.get_running_loop().run_in_executor(None, pipeline.latest_jpeg)
+    # Ограничиваем число одновременных потоков.
+    #
+    # Зачем. Соединение — штука долгоживущая, и любая утечка (закрытая
+    # вкладка, оборванный клиент, ошибка в браузере) остаётся висеть и
+    # продолжает опрашивать кадр. На сервере набралось 537 таких
+    # соединений — они съедали весь процессор, и частота кадров в
+    # конвейере упала с 18 до 3. Теперь поток сверх лимита не открывается
+    # вовсе: это заметно на экране («видео занято другими вкладками»),
+    # но процессор остаётся в порядке.
+    if not _claim_stream_slot():
+        raise HTTPException(
+            status_code=503,
+            detail="Окно видео занято другими вкладками",
+        )
 
-        if not frame:
-            # Кадра ещё нет — говорим об этом прямо, а не молчим
-            frame = await asyncio.get_running_loop().run_in_executor(
-                None, _placeholder_frame, pipeline
-            )
-            # Заглушку не шлём каждый кадр: достаточно раз в секунду
-            if idle_sent >= int(1.0 / interval):
-                idle_sent = 0
-            else:
-                idle_sent += 1
-                await asyncio.sleep(interval)
+    try:
+        while True:
+            # Клиент ушёл (закрыл вкладку, перешёл на другую): поток
+            # больше не нужен, соединение можно отпустить.
+            if request is not None and await request.is_disconnected():
+                break
+
+            # Кадр берём БЕЗ пула потоков: под замком там лежит ссылка
+            # на готовые байты, чтение занимает микросекунды. А через
+            # run_in_executor каждое чтение — это переброска в поток и
+            # обратно; при 24 чтениях в секунду на каждое соединение
+            # сотни таких перебросок съедали ядра целиком.
+            frame = pipeline.latest_jpeg()
+
+            if not frame:
+                # Кадра ещё нет — говорим об этом прямо, а не молчим
+                frame = _placeholder_frame(pipeline)
+                # Заглушку не шлём каждый кадр: достаточно раз в секунду
+                if idle_sent >= int(1.0 / interval):
+                    idle_sent = 0
+                else:
+                    idle_sent += 1
+                    await asyncio.sleep(interval)
                 continue
-        idle_sent = 0
+            idle_sent = 0
 
-        # Кадр не изменился — повторно слать незачем, трафик тот же
-        if frame != last_sent:
-            last_sent = frame
-            yield (
-                b"--" + BOUNDARY.encode() + b"\r\n"
-                b"Content-Type: image/jpeg\r\n"
-                b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
-                + frame + b"\r\n"
-            )
-        await asyncio.sleep(interval)
+            # Кадр не изменился — по умолчанию слать незачем, трафик
+            # тот же. Но если картинка не менялась дольше HEARTBEAT_S,
+            # повторяем её всё равно: так клиент видит, что поток ЖИВ.
+            #
+            # Почему это важно. Раньше в неподвижной сцене байты не шли
+            # вообще, и клиент принимал тишину за обрыв: он рвал
+            # соединение и переподключался. Таких переподключений
+            # набралось сотни, они съедали процессор, и частота кадров
+            # в конвейере падала с 18 до 3.
+            now = time.monotonic()
+            if frame != last_sent or (now - last_sent_at) >= HEARTBEAT_S:
+                last_sent = frame
+                last_sent_at = now
+                yield (
+                    b"--" + BOUNDARY.encode() + b"\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
+                    + frame + b"\r\n"
+                )
+            await asyncio.sleep(interval)
+    finally:
+        _release_stream_slot()
+
+
+#: Сколько окон видео может быть открыто одновременно. Пять — это
+#: ноутбук с парой вкладок плюс запас; на демонстрации хватает одного,
+#: а десяток одинаковых потоков серверу не нужен.
+MAX_STREAM_CLIENTS = 5
+
+_stream_clients = 0
+
+
+def _claim_stream_slot() -> bool:
+    global _stream_clients
+    if _stream_clients >= MAX_STREAM_CLIENTS:
+        return False
+    _stream_clients += 1
+    return True
+
+
+def _release_stream_slot() -> None:
+    global _stream_clients
+    if _stream_clients > 0:
+        _stream_clients -= 1
 
 
 def _placeholder_frame(pipeline: Pipeline):

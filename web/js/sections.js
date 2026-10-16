@@ -1307,6 +1307,81 @@
     if (box) box.hidden = true;
   }
 
+  /* Быстрое обновление «Текущего состояния».
+
+   Проблема, которую это решает. Панель перерисовывалась раз в 5 секунд
+   вместе со всем остальным экраном. Человек уходит из зоны на 4–8
+   секунд — за такой промежуток панель успевала обновиться один раз, и
+   чаще всего не в тот момент: оператор видел «рабочий на месте», хотя
+   человек уже ушёл, и считал, что состояние не меняется.
+
+   Здесь значения в четырёх ячейках обновляются на месте, раз в
+   полторы секунды, отдельным лёгким запросом /api/video/state. Он не
+   ходит в базу и отдаёт то, что конвейер знает прямо сейчас. */
+  const NOW_TICK_MS = 1500;
+  let nowTimer = null;
+  let nowTickBusy = false;
+
+  function stopNowTicker() {
+    if (nowTimer) {
+      clearInterval(nowTimer);
+      nowTimer = null;
+    }
+  }
+
+  function startNowTicker() {
+    stopNowTicker();
+    nowTimer = setInterval(tickNowPanel, NOW_TICK_MS);
+  }
+
+  async function tickNowPanel() {
+    if (nowTickBusy) return;
+    /* Панели нет — мы на другой вкладке. Обновлять нечего, а запросы
+       лишние. */
+    const panel = document.querySelector(".now-panel");
+    if (!panel || panel.classList.contains("is-idle")) return;
+
+    nowTickBusy = true;
+    try {
+      const s = await global.PV.api.get("/api/video/state");
+      if (!s) return;
+      setCell(0,
+        '<span class="dot dot-' + (s.line_status === "WORKING" ? "green"
+          : s.line_status === "STOPPED" ? "red" : "gray") + '"></span>'
+        + (s.line_status || "UNKNOWN"),
+        s.line_status === "WORKING" ? "is-working"
+          : s.line_status === "STOPPED" ? "is-stopped" : "is-unknown");
+      setCell(1,
+        (s.person_present ? icon("check") : icon("close")) + " "
+        + (s.person_present ? "DETECTED" : "NOT DETECTED"),
+        s.person_present ? "is-ok" : "is-bad");
+      if (typeof s.downtime_seconds === "number") {
+        setCell(2, U.fmtHM(s.downtime_seconds),
+                s.downtime_seconds > 0 ? "is-bad" : "");
+      }
+    } catch (e) {
+      /* нет связи — панель обновится при следующем автообновлении */
+    } finally {
+      nowTickBusy = false;
+    }
+  }
+
+  /* Обновляет ячейку на месте. Разметка та же, что при полной
+     отрисовке, иначе значки и точки выглядели бы иначе в зависимости
+     от того, как обновилась панель. */
+  function setCell(index, html, cls) {
+    const cells = document.querySelectorAll(".now-cell");
+    const cell = cells[index];
+    if (!cell) return;
+    const value = cell.querySelector(".now-v");
+    if (!value) return;
+    const key = cls + "|" + html;
+    if (value.dataset.tick === key) return;
+    value.dataset.tick = key;
+    value.className = "now-v" + (cls ? " " + cls : "");
+    value.innerHTML = html;
+  }
+
   function startFeedWatchdog() {
     if (feedWatchdog) clearTimeout(feedWatchdog);
     feedWatchdog = setTimeout(function () {
@@ -1573,6 +1648,12 @@
       }
       // Не сбрасываем прокрутку при перерисовке того же раздела (смена даты)
       if (view) el.scrollTop = 0;
+
+      /* Панель «Текущее состояние» есть только на вкладке «Камеры».
+         На ней включаем быстрое обновление ячеек, на остальных —
+         выключаем, чтобы не слать запросы в пустоту. */
+      if (target === "cameras") startNowTicker();
+      else stopNowTicker();
     },
 
     /* Возврат в «Мониторинг» показывает последнюю вкладку мониторинга,
